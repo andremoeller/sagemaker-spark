@@ -1,0 +1,401 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/serializers/ProtobufRequestRowSerializer.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation.serializers
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.spark.sql.Row
+</span>19 <span style=''>import org.apache.spark.sql.types.StructType
+</span>20 <span style=''>
+</span>21 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter
+</span>22 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{ContentTypes, RequestRowSerializer}
+</span>23 <span style=''>
+</span>24 <span style=''>/**
+</span>25 <span style=''>  * A [[RequestRowSerializer]] for converting labeled rows to SageMaker Protobuf-in-recordio
+</span>26 <span style=''>  * request data.
+</span>27 <span style=''>  *
+</span>28 <span style=''>  * @param schema The schema of Rows being serialized. This parameter is Optional as the schema
+</span>29 <span style=''>  *               may not be known when this serializer is constructed.
+</span>30 <span style=''>  * @param featuresColumnName the name of the features column
+</span>31 <span style=''>  */
+</span>32 <span style=''>class ProtobufRequestRowSerializer(val schema : Option[StructType] = None,
+</span>33 <span style=''>                                   val featuresColumnName : String = &quot;features&quot;)
+</span>34 <span style=''>  extends RequestRowSerializer {
+</span>35 <span style=''>
+</span>36 <span style=''>  if (</span><span style='background: #AEF1AE'>schema.isDefined</span><span style=''>) {
+</span>37 <span style=''>    </span><span style='background: #AEF1AE'>setSchema(schema.get)</span><span style=''>
+</span>38 <span style=''>  }
+</span>39 <span style=''>
+</span>40 <span style=''>  /**
+</span>41 <span style=''>    * Serializes an object to an Array of Record-IO encoded Protobuf bytes for transformation
+</span>42 <span style=''>    * by a SageMaker endpoint
+</span>43 <span style=''>    *
+</span>44 <span style=''>    * @param row The row to serialize
+</span>45 <span style=''>    * @return An Array[Byte]
+</span>46 <span style=''>    */
+</span>47 <span style=''>  override def serializeRow(row: Row): Array[Byte] = {
+</span>48 <span style=''>    val protobuf = </span><span style='background: #AEF1AE'>ProtobufConverter.rowToProtobuf(row, featuresColumnName)</span><span style=''>
+</span>49 <span style=''>    </span><span style='background: #AEF1AE'>ProtobufConverter.byteArrayToRecordIOEncodedByteArray(protobuf.toByteArray)</span><span style=''>
+</span>50 <span style=''>  }
+</span>51 <span style=''>
+</span>52 <span style=''>  /**
+</span>53 <span style=''>    * Returns [[com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.PROTOBUF]]
+</span>54 <span style=''>    */
+</span>55 <span style=''>  override val contentType: String = </span><span style='background: #AEF1AE'>ContentTypes.PROTOBUF</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>  /**
+</span>58 <span style=''>    * Validates that the specified schema contains a Vector column with name featuresColumnName.
+</span>59 <span style=''>    *
+</span>60 <span style=''>    * @throws java.lang.IllegalArgumentException if the specified schema is invalid
+</span>61 <span style=''>    */
+</span>62 <span style=''>  override def validateSchema(schema : StructType): Unit = {
+</span>63 <span style=''>    </span><span style='background: #AEF1AE'>SchemaValidators.unlabeledSchemaValidator(schema, featuresColumnName)</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1874
+        </td>
+        <td>
+          1467
+          -
+          1483
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufRequestRowSerializer.this.schema.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          1463
+          -
+          1463
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          1463
+          -
+          1463
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1877
+        </td>
+        <td>
+          1491
+          -
+          1512
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.setSchema
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufRequestRowSerializer.this.setSchema(ProtobufRequestRowSerializer.this.schema.get)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1876
+        </td>
+        <td>
+          1491
+          -
+          1512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.setSchema
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufRequestRowSerializer.this.setSchema(ProtobufRequestRowSerializer.this.schema.get)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1875
+        </td>
+        <td>
+          1501
+          -
+          1511
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufRequestRowSerializer.this.schema.get
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1880
+        </td>
+        <td>
+          1839
+          -
+          1857
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.ProtobufRequestRowSerializer.featuresColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufRequestRowSerializer.this.featuresColumnName
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1882
+        </td>
+        <td>
+          1802
+          -
+          1858
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.rowToProtobuf
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.rowToProtobuf(row, ProtobufRequestRowSerializer.this.featuresColumnName, com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.rowToProtobuf$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          1820
+          -
+          1820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.rowToProtobuf$default$3
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.rowToProtobuf$default$3
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1883
+        </td>
+        <td>
+          1917
+          -
+          1937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.google.protobuf.AbstractMessageLite.toByteArray
+        </td>
+        <td style="background: #AEF1AE">
+          protobuf.toByteArray()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1884
+        </td>
+        <td>
+          1863
+          -
+          1938
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.byteArrayToRecordIOEncodedByteArray
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.byteArrayToRecordIOEncodedByteArray(protobuf.toByteArray())
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1885
+        </td>
+        <td>
+          2091
+          -
+          2112
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.PROTOBUF
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.transformation.`package`.ContentTypes.PROTOBUF
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1886
+        </td>
+        <td>
+          2429
+          -
+          2447
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.ProtobufRequestRowSerializer.featuresColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufRequestRowSerializer.this.featuresColumnName
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1887
+        </td>
+        <td>
+          2379
+          -
+          2448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.SchemaValidators.unlabeledSchemaValidator
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaValidators.unlabeledSchemaValidator(schema, ProtobufRequestRowSerializer.this.featuresColumnName)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

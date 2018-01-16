@@ -1,0 +1,177 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/RequestRowSerializer.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.spark.sql.Row
+</span>19 <span style=''>import org.apache.spark.sql.types.StructType
+</span>20 <span style=''>
+</span>21 <span style=''>/**
+</span>22 <span style=''>  * Serializes a [[Row]] to a byte array with content type [[RequestRowSerializer#contentType]].
+</span>23 <span style=''>  *
+</span>24 <span style=''>  * Rows are serialized with [[RequestRowSerializer#serializeRow]] to an Array of Bytes.
+</span>25 <span style=''>  * Implementations may require that Rows being serialized conform to a specific schema. Row
+</span>26 <span style=''>  * schemas can be validated by [[RequestRowSerializer#validateSchema]]. The schema for a batch
+</span>27 <span style=''>  * of Row of objects can be set via [[RequestRowSerializer#setSchema]].
+</span>28 <span style=''>  *
+</span>29 <span style=''>  * @see [[com.amazonaws.services.sagemaker.sparksdk.SageMakerModel]]
+</span>30 <span style=''>  */
+</span>31 <span style=''>trait RequestRowSerializer extends Serializable {
+</span>32 <span style=''>
+</span>33 <span style=''>  /**
+</span>34 <span style=''>    * The schema for Row objects being serialized by [[RequestRowSerializer#serializeRow]]
+</span>35 <span style=''>    */
+</span>36 <span style=''>  protected var rowSchema : StructType = _
+</span>37 <span style=''>
+</span>38 <span style=''>  /**
+</span>39 <span style=''>    * Serializes a [[Row]] to an Array of Bytes, conforming to a content-type of
+</span>40 <span style=''>    * [[RequestRowSerializer#contentType]]
+</span>41 <span style=''>    *
+</span>42 <span style=''>    * @param row The row to serialize
+</span>43 <span style=''>    * @return An Array[Byte]
+</span>44 <span style=''>    */
+</span>45 <span style=''>  def serializeRow(row : Row) : Array[Byte]
+</span>46 <span style=''>
+</span>47 <span style=''>  /**
+</span>48 <span style=''>    * The SageMaker transformation content-type
+</span>49 <span style=''>    */
+</span>50 <span style=''>  val contentType : String
+</span>51 <span style=''>
+</span>52 <span style=''>  /**
+</span>53 <span style=''>    * Validates that [[Row]]s with the specified schema can be serialized by this
+</span>54 <span style=''>    * [[RequestRowSerializer]].
+</span>55 <span style=''>    *
+</span>56 <span style=''>    * Validation errors are reported by throwing an [[IllegalArgumentException]]
+</span>57 <span style=''>    *
+</span>58 <span style=''>    * @throws IllegalArgumentException if Rows with the specified schema cannot be serialized
+</span>59 <span style=''>    *                                  by this [[RequestRowSerializer]]
+</span>60 <span style=''>    */
+</span>61 <span style=''>  def validateSchema(schema : StructType): Unit = </span><span style='background: #F0ADAD'>{
+</span>62 <span style=''></span><span style='background: #F0ADAD'>
+</span>63 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  /**
+</span>66 <span style=''>    * Sets the rowSchema for this RequestRowSerializer. Invokes validateSchema on the
+</span>67 <span style=''>    * specified schema.
+</span>68 <span style=''>    */
+</span>69 <span style=''>  def setSchema(schema : StructType): Unit = {
+</span>70 <span style=''>    </span><span style='background: #AEF1AE'>validateSchema(schema)</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #AEF1AE'>this.rowSchema = schema</span><span style=''>
+</span>72 <span style=''>  }
+</span>73 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1718
+        </td>
+        <td>
+          2241
+          -
+          2247
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1719
+        </td>
+        <td>
+          2423
+          -
+          2445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.validateSchema
+        </td>
+        <td style="background: #AEF1AE">
+          RequestRowSerializer.this.validateSchema(schema)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1720
+        </td>
+        <td>
+          2450
+          -
+          2473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.rowSchema_=
+        </td>
+        <td style="background: #AEF1AE">
+          this.rowSchema_=(schema)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

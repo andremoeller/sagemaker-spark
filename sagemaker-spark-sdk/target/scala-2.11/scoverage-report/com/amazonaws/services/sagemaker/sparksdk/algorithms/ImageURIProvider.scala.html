@@ -1,0 +1,489 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/algorithms/ImageURIProvider.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.algorithms
+</span>17 <span style=''>
+</span>18 <span style=''>import com.amazonaws.regions.Regions
+</span>19 <span style=''>
+</span>20 <span style=''>private[algorithms] object SageMakerImageURIProvider {
+</span>21 <span style=''>
+</span>22 <span style=''>  def getImage(region: String, regionAccountMap: Map[String, String],
+</span>23 <span style=''>               algorithmName: String, algorithmTag: String): String = {
+</span>24 <span style=''>    val account = </span><span style='background: #AEF1AE'>regionAccountMap.get(region)</span><span style=''>
+</span>25 <span style=''>    account match {
+</span>26 <span style=''>      case None =&gt; </span><span style='background: #F0ADAD'>throw new RuntimeException(s&quot;The region $region is not supported.&quot; +
+</span>27 <span style=''></span><span style='background: #F0ADAD'>        s&quot;Supported Regions: ${regionAccountMap.keys.mkString(&quot;, &quot;)}&quot;)</span><span style=''>
+</span>28 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>s&quot;${account.get}.dkr.ecr.${region}.amazonaws.com/${algorithmName}:${algorithmTag}&quot;</span><span style=''>
+</span>29 <span style=''>    }
+</span>30 <span style=''>  }
+</span>31 <span style=''>}
+</span>32 <span style=''>
+</span>33 <span style=''>private[algorithms] object SagerMakerRegionAccountMaps {
+</span>34 <span style=''>  // For KMeans, PCA, Linear Learner
+</span>35 <span style=''>  val AlgorithmsAccountMap: Map[String, String] = </span><span style='background: #AEF1AE'>Map(
+</span>36 <span style=''></span><span style='background: #AEF1AE'>    Regions.EU_WEST_1.getName -&gt; &quot;438346466558&quot;,
+</span>37 <span style=''></span><span style='background: #AEF1AE'>    Regions.US_EAST_1.getName -&gt; &quot;382416733822&quot;,
+</span>38 <span style=''></span><span style='background: #AEF1AE'>    Regions.US_EAST_2.getName -&gt; &quot;404615174143&quot;,
+</span>39 <span style=''></span><span style='background: #AEF1AE'>    Regions.US_WEST_2.getName -&gt; &quot;174872318107&quot;
+</span>40 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>41 <span style=''>
+</span>42 <span style=''>  // For XGBoost
+</span>43 <span style=''>  val ApplicationsAccountMap: Map[String, String] = </span><span style='background: #AEF1AE'>Map(
+</span>44 <span style=''></span><span style='background: #AEF1AE'>    Regions.EU_WEST_1.getName -&gt; &quot;685385470294&quot;,
+</span>45 <span style=''></span><span style='background: #AEF1AE'>    Regions.US_EAST_1.getName -&gt; &quot;811284229777&quot;,
+</span>46 <span style=''></span><span style='background: #AEF1AE'>    Regions.US_EAST_2.getName -&gt; &quot;825641698319&quot;,
+</span>47 <span style=''></span><span style='background: #AEF1AE'>    Regions.US_WEST_2.getName -&gt; &quot;433757028032&quot;
+</span>48 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>49 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          899
+          -
+          927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #AEF1AE">
+          regionAccountMap.get(region)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          967
+          -
+          1106
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.RuntimeException(scala.StringContext.apply(&quot;The region &quot;, &quot; is not supported.&quot;).s(region).+(scala.StringContext.apply(&quot;Supported Regions: &quot;, &quot;&quot;).s(regionAccountMap.keys.mkString(&quot;, &quot;))))
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          1125
+          -
+          1126
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          1188
+          -
+          1190
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          1123
+          -
+          1205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.dkr.ecr.&quot;, &quot;.amazonaws.com/&quot;, &quot;:&quot;, &quot;&quot;).s(account.get, region, algorithmName, algorithmTag)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          1127
+          -
+          1138
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          account.get
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          1157
+          -
+          1173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.amazonaws.com/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          1139
+          -
+          1149
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.dkr.ecr.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          1204
+          -
+          1205
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          1363
+          -
+          1566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, String](scala.this.Predef.ArrowAssoc[String](EU_WEST_1.getName()).-&gt;[String](&quot;438346466558&quot;), scala.this.Predef.ArrowAssoc[String](US_EAST_1.getName()).-&gt;[String](&quot;382416733822&quot;), scala.this.Predef.ArrowAssoc[String](US_EAST_2.getName()).-&gt;[String](&quot;404615174143&quot;), scala.this.Predef.ArrowAssoc[String](US_WEST_2.getName()).-&gt;[String](&quot;174872318107&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          1372
+          -
+          1415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](EU_WEST_1.getName()).-&gt;[String](&quot;438346466558&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          1421
+          -
+          1464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](US_EAST_1.getName()).-&gt;[String](&quot;382416733822&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          1470
+          -
+          1513
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](US_EAST_2.getName()).-&gt;[String](&quot;404615174143&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          1519
+          -
+          1562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](US_WEST_2.getName()).-&gt;[String](&quot;174872318107&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          1637
+          -
+          1840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, String](scala.this.Predef.ArrowAssoc[String](EU_WEST_1.getName()).-&gt;[String](&quot;685385470294&quot;), scala.this.Predef.ArrowAssoc[String](US_EAST_1.getName()).-&gt;[String](&quot;811284229777&quot;), scala.this.Predef.ArrowAssoc[String](US_EAST_2.getName()).-&gt;[String](&quot;825641698319&quot;), scala.this.Predef.ArrowAssoc[String](US_WEST_2.getName()).-&gt;[String](&quot;433757028032&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          1646
+          -
+          1689
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](EU_WEST_1.getName()).-&gt;[String](&quot;685385470294&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          1695
+          -
+          1738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](US_EAST_1.getName()).-&gt;[String](&quot;811284229777&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          1744
+          -
+          1787
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](US_EAST_2.getName()).-&gt;[String](&quot;825641698319&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          1793
+          -
+          1836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](US_WEST_2.getName()).-&gt;[String](&quot;433757028032&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

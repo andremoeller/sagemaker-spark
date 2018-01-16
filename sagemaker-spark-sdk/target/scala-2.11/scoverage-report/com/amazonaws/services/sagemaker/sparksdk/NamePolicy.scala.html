@@ -1,0 +1,863 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/NamePolicy.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk
+</span>17 <span style=''>
+</span>18 <span style=''>import java.time.LocalDateTime
+</span>19 <span style=''>import java.time.format.DateTimeFormatter
+</span>20 <span style=''>
+</span>21 <span style=''>import org.apache.spark.ml.util.Identifiable
+</span>22 <span style=''>
+</span>23 <span style=''>/**
+</span>24 <span style=''>  * Creates a [[NamePolicy]] upon a call to [[NamePolicyFactory#createNamePolicy]]
+</span>25 <span style=''>  */
+</span>26 <span style=''>abstract class NamePolicyFactory {
+</span>27 <span style=''>  def createNamePolicy : NamePolicy
+</span>28 <span style=''>}
+</span>29 <span style=''>
+</span>30 <span style=''>/**
+</span>31 <span style=''>  * Creates a [[RandomNamePolicy]] upon a call to [[RandomNamePolicyFactory#createNamePolicy]]
+</span>32 <span style=''>  *
+</span>33 <span style=''>  * @param prefix The common name prefix for all SageMaker entities named with this NamePolicy
+</span>34 <span style=''>  */
+</span>35 <span style=''>class RandomNamePolicyFactory(val prefix: String = &quot;&quot;) extends NamePolicyFactory {
+</span>36 <span style=''>  override def createNamePolicy: NamePolicy = { </span><span style='background: #AEF1AE'>new RandomNamePolicy(prefix)</span><span style=''>}
+</span>37 <span style=''>}
+</span>38 <span style=''>
+</span>39 <span style=''>/**
+</span>40 <span style=''>  * Provides names for SageMaker entities created during fit in
+</span>41 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator]]
+</span>42 <span style=''>  */
+</span>43 <span style=''>abstract class NamePolicy {
+</span>44 <span style=''>  val trainingJobName: String
+</span>45 <span style=''>  val modelName : String
+</span>46 <span style=''>  val endpointConfigName : String
+</span>47 <span style=''>  val endpointName : String
+</span>48 <span style=''>}
+</span>49 <span style=''>
+</span>50 <span style=''>/**
+</span>51 <span style=''>  * Provides random, unique SageMaker entity names that begin with the specified prefix.
+</span>52 <span style=''>  *
+</span>53 <span style=''>  * @param prefix The common name prefix for all SageMaker entities named with this NamePolicy
+</span>54 <span style=''>  */
+</span>55 <span style=''>case class RandomNamePolicy(val prefix : String = &quot;&quot;) extends NamePolicy {
+</span>56 <span style=''>  // To pass the training job name validation regex: ^[a-zA-Z0-9](-*[a-zA-Z0-9])*
+</span>57 <span style=''>  val uid = </span><span style='background: #AEF1AE'>Identifiable.randomUID(&quot;&quot;).stripPrefix(&quot;_&quot;).replace(&quot;_&quot;, &quot;-&quot;)</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  private val timestamp : String =
+</span>60 <span style=''>    </span><span style='background: #AEF1AE'>LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME).replace(&quot;:&quot;, &quot;-&quot;).replace(&quot;.&quot;, &quot;-&quot;)</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  val trainingJobName = </span><span style='background: #AEF1AE'>s&quot;${prefix}trainingJob-$uid-$timestamp&quot;</span><span style=''>
+</span>63 <span style=''>  val modelName = </span><span style='background: #AEF1AE'>s&quot;${prefix}model-$uid-$timestamp&quot;</span><span style=''>
+</span>64 <span style=''>  val endpointConfigName = </span><span style='background: #AEF1AE'>s&quot;${prefix}endpointConfig-$uid-$timestamp&quot;</span><span style=''>
+</span>65 <span style=''>  val endpointName = </span><span style='background: #AEF1AE'>s&quot;${prefix}endpoint-$uid-$timestamp&quot;</span><span style=''>
+</span>66 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1254
+          -
+          1282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new RandomNamePolicy(RandomNamePolicyFactory.this.prefix)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1275
+          -
+          1281
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicyFactory.prefix
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicyFactory.this.prefix
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1943
+          -
+          2004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.replace
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(org.apache.spark.ml.util.Identifiable.randomUID(&quot;&quot;)).stripPrefix(&quot;_&quot;).replace(&quot;_&quot;, &quot;-&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          2045
+          -
+          2140
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.replace
+        </td>
+        <td style="background: #AEF1AE">
+          java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_DATE_TIME).replace(&quot;:&quot;, &quot;-&quot;).replace(&quot;.&quot;, &quot;-&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          2204
+          -
+          2205
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          2195
+          -
+          2204
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.timestamp
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.timestamp
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          2168
+          -
+          2169
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          2193
+          -
+          2195
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          2190
+          -
+          2193
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.uid
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.uid
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          2170
+          -
+          2176
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.prefix
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.prefix
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          2166
+          -
+          2205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;trainingJob-&quot;, &quot;-&quot;, &quot;&quot;).s(RandomNamePolicy.this.prefix, RandomNamePolicy.this.uid, RandomNamePolicy.this.timestamp)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          2177
+          -
+          2190
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;trainingJob-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2228
+          -
+          2234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.prefix
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.prefix
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          2224
+          -
+          2257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;model-&quot;, &quot;-&quot;, &quot;&quot;).s(RandomNamePolicy.this.prefix, RandomNamePolicy.this.uid, RandomNamePolicy.this.timestamp)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          2235
+          -
+          2242
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;model-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          2226
+          -
+          2227
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2256
+          -
+          2257
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2247
+          -
+          2256
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.timestamp
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.timestamp
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2242
+          -
+          2245
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.uid
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.uid
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          2245
+          -
+          2247
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          2315
+          -
+          2317
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2312
+          -
+          2315
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.uid
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.uid
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2296
+          -
+          2312
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;endpointConfig-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          2289
+          -
+          2295
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.prefix
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.prefix
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2285
+          -
+          2327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;endpointConfig-&quot;, &quot;-&quot;, &quot;&quot;).s(RandomNamePolicy.this.prefix, RandomNamePolicy.this.uid, RandomNamePolicy.this.timestamp)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2317
+          -
+          2326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.timestamp
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.timestamp
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          2287
+          -
+          2288
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2326
+          -
+          2327
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2384
+          -
+          2385
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2375
+          -
+          2384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.timestamp
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.timestamp
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2351
+          -
+          2352
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2373
+          -
+          2375
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2370
+          -
+          2373
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.uid
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.uid
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2349
+          -
+          2385
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;endpoint-&quot;, &quot;-&quot;, &quot;&quot;).s(RandomNamePolicy.this.prefix, RandomNamePolicy.this.uid, RandomNamePolicy.this.timestamp)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2360
+          -
+          2370
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;endpoint-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2353
+          -
+          2359
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.RandomNamePolicy.prefix
+        </td>
+        <td style="background: #AEF1AE">
+          RandomNamePolicy.this.prefix
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,405 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/S3Resource.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk
+</span>17 <span style=''>
+</span>18 <span style=''>import java.net.URI
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''>  * An S3 Resource for SageMaker to use.
+</span>22 <span style=''>  */
+</span>23 <span style=''>abstract class S3Resource
+</span>24 <span style=''>
+</span>25 <span style=''>/**
+</span>26 <span style=''>  * Represents an S3 location defined by a Spark configuration key.
+</span>27 <span style=''>  * &lt;p/&gt;
+</span>28 <span style=''>  * The configuration key must either define a bucket name or an S3 URI of the form
+</span>29 <span style=''>  *{{{
+</span>30 <span style=''>  *   s3://bucket-name/prefix-path
+</span>31 <span style=''>  *}}}
+</span>32 <span style=''>  *
+</span>33 <span style=''>  * @param configKey The Spark configuration key to read the S3 location from
+</span>34 <span style=''>  */
+</span>35 <span style=''>case class S3PathFromConfig(val configKey : String =
+</span>36 <span style=''>                            &quot;com.amazonaws.services.sagemaker.sparksdk.s3-data-bucket&quot;)
+</span>37 <span style=''>  extends S3Resource
+</span>38 <span style=''>
+</span>39 <span style=''>/**
+</span>40 <span style=''>  * Defines an S3 location that will be auto-created at runtime.
+</span>41 <span style=''>  */
+</span>42 <span style=''>case class S3AutoCreatePath() extends S3Resource
+</span>43 <span style=''>
+</span>44 <span style=''>/**
+</span>45 <span style=''>  * Represents a location within an S3 Bucket.
+</span>46 <span style=''>  *
+</span>47 <span style=''>  * @param bucket An S3 bucket
+</span>48 <span style=''>  * @param objectPath An S3 key or key prefix
+</span>49 <span style=''>  */
+</span>50 <span style=''>case class S3DataPath(val bucket : String, val objectPath : String) extends S3Resource {
+</span>51 <span style=''>  def toS3UriString : String = </span><span style='background: #AEF1AE'>s&quot;s3://$bucket/$objectPath&quot;</span><span style=''>
+</span>52 <span style=''>}
+</span>53 <span style=''>
+</span>54 <span style=''>object S3DataPath {
+</span>55 <span style=''>
+</span>56 <span style=''>  /**
+</span>57 <span style=''>    * Constructs an S3DataPath from an S3 URI.
+</span>58 <span style=''>    *
+</span>59 <span style=''>    * @param uriString S3 URI in the form s3://bucket-name/prefix-path
+</span>60 <span style=''>    * @return S3DataPath object
+</span>61 <span style=''>    */
+</span>62 <span style=''>  def fromS3URI(uriString : String) : S3DataPath = {
+</span>63 <span style=''>    val uri = </span><span style='background: #AEF1AE'>new URI(uriString)</span><span style=''>
+</span>64 <span style=''>    if (</span><span style='background: #AEF1AE'>uri.getScheme.startsWith(&quot;s3&quot;)</span><span style=''>) {
+</span>65 <span style=''>      </span><span style='background: #AEF1AE'>S3DataPath(uri.getAuthority, uri.getPath.stripPrefix(&quot;/&quot;))</span><span style=''>
+</span>66 <span style=''>    } else {
+</span>67 <span style=''>      </span><span style='background: #AEF1AE'>throw new IllegalArgumentException(&quot;Invalid scheme: &quot; + uri.getScheme)</span><span style=''>
+</span>68 <span style=''>    }
+</span>69 <span style=''>  }
+</span>70 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          1593
+          -
+          1603
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.objectPath
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.this.objectPath
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          1591
+          -
+          1593
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          1585
+          -
+          1591
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.bucket
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.this.bucket
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          1579
+          -
+          1585
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;s3://&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          1603
+          -
+          1604
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          1577
+          -
+          1604
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;s3://&quot;, &quot;/&quot;, &quot;&quot;).s(S3DataPath.this.bucket, S3DataPath.this.objectPath)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          1865
+          -
+          1883
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URI.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.net.URI(uriString)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          1892
+          -
+          1922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.startsWith
+        </td>
+        <td style="background: #AEF1AE">
+          uri.getScheme().startsWith(&quot;s3&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          1932
+          -
+          1990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.apply(uri.getAuthority(), scala.this.Predef.augmentString(uri.getPath()).stripPrefix(&quot;/&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          1961
+          -
+          1989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripPrefix
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(uri.getPath()).stripPrefix(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          1943
+          -
+          1959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URI.getAuthority
+        </td>
+        <td style="background: #AEF1AE">
+          uri.getAuthority()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          1932
+          -
+          1990
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.apply(uri.getAuthority(), scala.this.Predef.augmentString(uri.getPath()).stripPrefix(&quot;/&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          2010
+          -
+          2080
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(&quot;Invalid scheme: &quot;.+(uri.getScheme()))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2010
+          -
+          2080
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(&quot;Invalid scheme: &quot;.+(uri.getScheme()))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

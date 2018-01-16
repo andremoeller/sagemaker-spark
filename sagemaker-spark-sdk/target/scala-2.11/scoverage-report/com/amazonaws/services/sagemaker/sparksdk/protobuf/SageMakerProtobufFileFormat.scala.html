@@ -1,0 +1,239 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/protobuf/SageMakerProtobufFileFormat.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.protobuf
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.hadoop.fs.FileStatus
+</span>19 <span style=''>import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
+</span>20 <span style=''>
+</span>21 <span style=''>import org.apache.spark.sql.SparkSession
+</span>22 <span style=''>import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriter, OutputWriterFactory}
+</span>23 <span style=''>import org.apache.spark.sql.sources.DataSourceRegister
+</span>24 <span style=''>import org.apache.spark.sql.types.StructType
+</span>25 <span style=''>/**
+</span>26 <span style=''>  * A Spark FileFormat for serializing Dataframes of labeled vectors to the Amazon Record
+</span>27 <span style=''>  * protobuf file format encoded in RecordIO.
+</span>28 <span style=''>  *
+</span>29 <span style=''>  * To write records from a DataFrame in this file format, run
+</span>30 <span style=''>  * &lt;code&gt;dataframe.save
+</span>31 <span style=''>  *   .format(&quot;sagemaker&quot;)
+</span>32 <span style=''>  *   .option(&quot;labelColumnName&quot;, &quot;myLabelColumn&quot;)
+</span>33 <span style=''>  *   .option(&quot;featuresColumnName&quot;, &quot;myFeaturesColumn&quot;)
+</span>34 <span style=''>  *   .save(&quot;my_output_path&quot;)&lt;/code&gt;
+</span>35 <span style=''>  *
+</span>36 <span style=''>  * @see [[https://aws.amazon.com/sagemaker/latest/dg/cdf-training.html/]] for more information on
+</span>37 <span style=''>  *      the Amazon Record data format.
+</span>38 <span style=''>  * @see [[https://mxnet.incubator.apache.org/architecture/note_data_loading.html]] for more
+</span>39 <span style=''>  *      information on recordIO
+</span>40 <span style=''>  */
+</span>41 <span style=''>class SageMakerProtobufFileFormat extends FileFormat with DataSourceRegister {
+</span>42 <span style=''>
+</span>43 <span style=''>  override def inferSchema(sparkSession: SparkSession,
+</span>44 <span style=''>                           options: Map[String, String],
+</span>45 <span style=''>                           files: Seq[FileStatus]):
+</span>46 <span style=''>  Option[StructType] = {
+</span>47 <span style=''>    </span><span style='background: #F0ADAD'>Option.empty</span><span style=''>
+</span>48 <span style=''>  }
+</span>49 <span style=''>
+</span>50 <span style=''>  override def shortName(): String = </span><span style='background: #AEF1AE'>&quot;sagemaker&quot;</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  override def toString: String = </span><span style='background: #F0ADAD'>&quot;SageMaker&quot;</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  override def prepareWrite(
+</span>55 <span style=''>                             sparkSession: SparkSession,
+</span>56 <span style=''>                             job: Job,
+</span>57 <span style=''>                             options: Map[String, String],
+</span>58 <span style=''>                             dataSchema: StructType): OutputWriterFactory = {
+</span>59 <span style=''>    </span><span style='background: #F0ADAD'>new</span><span style=''> OutputWriterFactory {
+</span>60 <span style=''>      override def newInstance(
+</span>61 <span style=''>                                path: String,
+</span>62 <span style=''>                                dataSchema: StructType,
+</span>63 <span style=''>                                context: TaskAttemptContext): OutputWriter = {
+</span>64 <span style=''>        </span><span style='background: #F0ADAD'>new SageMakerProtobufWriter(path, context, dataSchema, options)</span><span style=''>
+</span>65 <span style=''>      }
+</span>66 <span style=''>
+</span>67 <span style=''>      override def getFileExtension(context: TaskAttemptContext): String = {
+</span>68 <span style=''>        </span><span style='background: #F0ADAD'>&quot;.pbr&quot;</span><span style=''>
+</span>69 <span style=''>      }
+</span>70 <span style=''>    }
+</span>71 <span style=''>  }
+</span>72 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1689
+        </td>
+        <td>
+          1932
+          -
+          1944
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Option.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1690
+        </td>
+        <td>
+          1987
+          -
+          1998
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;sagemaker&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1691
+        </td>
+        <td>
+          2034
+          -
+          2045
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SageMaker&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1694
+        </td>
+        <td>
+          2313
+          -
+          2316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.SageMakerProtobufFileFormat.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          2560
+          -
+          2623
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.SageMakerProtobufWriter.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new SageMakerProtobufWriter(path, context, dataSchema, options)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1693
+        </td>
+        <td>
+          2718
+          -
+          2724
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.pbr&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

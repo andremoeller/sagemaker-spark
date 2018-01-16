@@ -1,0 +1,476 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/serializers/UnlabeledLibSVMRequestRowSerializer.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation.serializers
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.spark.ml.linalg.Vector
+</span>19 <span style=''>import org.apache.spark.sql.Row
+</span>20 <span style=''>import org.apache.spark.sql.types.StructType
+</span>21 <span style=''>
+</span>22 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{ContentTypes, RequestRowSerializer}
+</span>23 <span style=''>
+</span>24 <span style=''>/**
+</span>25 <span style=''>  * Extracts a features column from a Row and serializes as a LibSVM record. Each serialized
+</span>26 <span style=''>  * LibSVM record has a label of 0.
+</span>27 <span style=''>  *
+</span>28 <span style=''>  * Each Row must contain a Vector column with name featuresColumnName.
+</span>29 <span style=''>  *
+</span>30 <span style=''>  * @param featuresColumnName the name of the features column
+</span>31 <span style=''>  */
+</span>32 <span style=''>class UnlabeledLibSVMRequestRowSerializer (val schema : Option[StructType] = None,
+</span>33 <span style=''>                                           val featuresColumnName : String = &quot;features&quot;)
+</span>34 <span style=''>  extends RequestRowSerializer {
+</span>35 <span style=''>
+</span>36 <span style=''>  if (</span><span style='background: #AEF1AE'>schema.isDefined</span><span style=''>) {
+</span>37 <span style=''>    </span><span style='background: #AEF1AE'>setSchema(schema.get)</span><span style=''>
+</span>38 <span style=''>  }
+</span>39 <span style=''>
+</span>40 <span style=''>  private var featuresFieldIndex : Int = _
+</span>41 <span style=''>
+</span>42 <span style=''>  /**
+</span>43 <span style=''>    * Serializes an object to an Array of bytes for transformation by a SageMaker endpoint
+</span>44 <span style=''>    *
+</span>45 <span style=''>    * @param row The row to serialize
+</span>46 <span style=''>    * @return An Array[Byte]
+</span>47 <span style=''>    */
+</span>48 <span style=''>  override def serializeRow(row: Row): Array[Byte] = {
+</span>49 <span style=''>    </span><span style='background: #AEF1AE'>LibSVMRequestRowSerializerUtils.serializeLabeledFeatureVector(0.0,
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      row.getAs[Vector](featuresFieldIndex))</span><span style=''>
+</span>51 <span style=''>  }
+</span>52 <span style=''>
+</span>53 <span style=''>  /**
+</span>54 <span style=''>    * Returns [[com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.TEXT_LIBSVM]]
+</span>55 <span style=''>    */
+</span>56 <span style=''>  override val contentType: String = </span><span style='background: #AEF1AE'>ContentTypes.TEXT_LIBSVM</span><span style=''>
+</span>57 <span style=''>
+</span>58 <span style=''>  /**
+</span>59 <span style=''>    * Validates that the specified schema contains a Double column with name labelColumnName and
+</span>60 <span style=''>    * a Vector column with name featuresColumnName.
+</span>61 <span style=''>    *
+</span>62 <span style=''>    * @throws java.lang.IllegalArgumentException if the specified schema is invalid
+</span>63 <span style=''>    */
+</span>64 <span style=''>  override def validateSchema(schema : StructType): Unit = {
+</span>65 <span style=''>    </span><span style='background: #AEF1AE'>SchemaValidators.unlabeledSchemaValidator(schema, featuresColumnName)</span><span style=''>
+</span>66 <span style=''>  }
+</span>67 <span style=''>
+</span>68 <span style=''>  /**
+</span>69 <span style=''>    * @inheritdoc
+</span>70 <span style=''>    *
+</span>71 <span style=''>    * This method must be invoked before calling serializeRow if no schema was set when this
+</span>72 <span style=''>    * RequestRowSerializer was constructed.
+</span>73 <span style=''>    */
+</span>74 <span style=''>  override def setSchema(schema : StructType): Unit = {
+</span>75 <span style=''>    </span><span style='background: #AEF1AE'>super.setSchema(schema)</span><span style=''>
+</span>76 <span style=''>    </span><span style='background: #AEF1AE'>this.featuresFieldIndex = schema.fieldIndex(featuresColumnName)</span><span style=''>
+</span>77 <span style=''>  }
+</span>78 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1925
+        </td>
+        <td>
+          1374
+          -
+          1390
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.schema.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1930
+        </td>
+        <td>
+          1370
+          -
+          1370
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1929
+        </td>
+        <td>
+          1370
+          -
+          1370
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1928
+        </td>
+        <td>
+          1398
+          -
+          1419
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.UnlabeledLibSVMRequestRowSerializer.setSchema
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.setSchema(UnlabeledLibSVMRequestRowSerializer.this.schema.get)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1927
+        </td>
+        <td>
+          1398
+          -
+          1419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.UnlabeledLibSVMRequestRowSerializer.setSchema
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.setSchema(UnlabeledLibSVMRequestRowSerializer.this.schema.get)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1926
+        </td>
+        <td>
+          1408
+          -
+          1418
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.schema.get
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1934
+        </td>
+        <td>
+          1705
+          -
+          1816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.LibSVMRequestRowSerializerUtils.serializeLabeledFeatureVector
+        </td>
+        <td style="background: #AEF1AE">
+          LibSVMRequestRowSerializerUtils.serializeLabeledFeatureVector(0.0, row.getAs[org.apache.spark.ml.linalg.Vector](UnlabeledLibSVMRequestRowSerializer.this.featuresFieldIndex))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1931
+        </td>
+        <td>
+          1767
+          -
+          1770
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0.0
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1933
+        </td>
+        <td>
+          1778
+          -
+          1815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Row.getAs
+        </td>
+        <td style="background: #AEF1AE">
+          row.getAs[org.apache.spark.ml.linalg.Vector](UnlabeledLibSVMRequestRowSerializer.this.featuresFieldIndex)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1932
+        </td>
+        <td>
+          1796
+          -
+          1814
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.UnlabeledLibSVMRequestRowSerializer.featuresFieldIndex
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.featuresFieldIndex
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1935
+        </td>
+        <td>
+          1972
+          -
+          1996
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.TEXT_LIBSVM
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.transformation.`package`.ContentTypes.TEXT_LIBSVM
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1937
+        </td>
+        <td>
+          2315
+          -
+          2384
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.SchemaValidators.unlabeledSchemaValidator
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaValidators.unlabeledSchemaValidator(schema, UnlabeledLibSVMRequestRowSerializer.this.featuresColumnName)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1936
+        </td>
+        <td>
+          2365
+          -
+          2383
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.UnlabeledLibSVMRequestRowSerializer.featuresColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.featuresColumnName
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1938
+        </td>
+        <td>
+          2624
+          -
+          2647
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.setSchema
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.super.setSchema(schema)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          2678
+          -
+          2715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fieldIndex
+        </td>
+        <td style="background: #AEF1AE">
+          schema.fieldIndex(UnlabeledLibSVMRequestRowSerializer.this.featuresColumnName)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1939
+        </td>
+        <td>
+          2696
+          -
+          2714
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.UnlabeledLibSVMRequestRowSerializer.featuresColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          UnlabeledLibSVMRequestRowSerializer.this.featuresColumnName
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1941
+        </td>
+        <td>
+          2652
+          -
+          2715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.UnlabeledLibSVMRequestRowSerializer.featuresFieldIndex_=
+        </td>
+        <td style="background: #AEF1AE">
+          this.featuresFieldIndex_=(schema.fieldIndex(UnlabeledLibSVMRequestRowSerializer.this.featuresColumnName))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,809 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/deserializers/LibSVMResponseRowDeserializer.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.spark.ml.linalg.{SparseVector, SQLDataTypes}
+</span>19 <span style=''>import org.apache.spark.sql.Row
+</span>20 <span style=''>import org.apache.spark.sql.types.{DoubleType, StructField, StructType}
+</span>21 <span style=''>
+</span>22 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{ContentTypes, ResponseRowDeserializer}
+</span>23 <span style=''>
+</span>24 <span style=''>/**
+</span>25 <span style=''>  * A [[ResponseRowDeserializer]] for converting LibSVM response data to labeled vectors.
+</span>26 <span style=''>  *
+</span>27 <span style=''>  * @param dim The vector dimension
+</span>28 <span style=''>  * @param labelColumnName The name of the label column
+</span>29 <span style=''>  * @param featuresColumnName The name of the features column
+</span>30 <span style=''>  */
+</span>31 <span style=''>class LibSVMResponseRowDeserializer (val dim : Int,
+</span>32 <span style=''>                                     val labelColumnName : String = &quot;label&quot;,
+</span>33 <span style=''>                                     val featuresColumnName : String = &quot;features&quot;)
+</span>34 <span style=''>  extends ResponseRowDeserializer {
+</span>35 <span style=''>
+</span>36 <span style=''>  if (</span><span style='background: #AEF1AE'>dim &lt; 0</span><span style=''>) {
+</span>37 <span style=''>    </span><span style='background: #AEF1AE'>throw new IllegalArgumentException(&quot;Vector dimension must not be negative&quot;)</span><span style=''>
+</span>38 <span style=''>  }
+</span>39 <span style=''>
+</span>40 <span style=''>  /**
+</span>41 <span style=''>    * Deserialize a SageMaker response to an a series of objects.
+</span>42 <span style=''>    *
+</span>43 <span style=''>    * @param responseData The Array[Byte] containing the SageMaker response
+</span>44 <span style=''>    * @return An Iterator over deserialized response objects
+</span>45 <span style=''>    */
+</span>46 <span style=''>  override def deserializeResponse(responseData: Array[Byte]): Iterator[Row] = {
+</span>47 <span style=''>    </span><span style='background: #AEF1AE'>new String(responseData).split(&quot;\n&quot;).map(parseLibSVMRow).iterator</span><span style=''>
+</span>48 <span style=''>  }
+</span>49 <span style=''>
+</span>50 <span style=''>  /**
+</span>51 <span style=''>    * Returns [[com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.TEXT_LIBSVM]]
+</span>52 <span style=''>    */
+</span>53 <span style=''>  override val accepts: String = </span><span style='background: #AEF1AE'>ContentTypes.TEXT_LIBSVM</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>  private def parseLibSVMRow(record: String): Row = {
+</span>56 <span style=''>    val items = </span><span style='background: #AEF1AE'>record.split(' ')</span><span style=''>
+</span>57 <span style=''>    val label = </span><span style='background: #AEF1AE'>items.head.toDouble</span><span style=''>
+</span>58 <span style=''>    val (indices, values) = items.tail.filter(_.nonEmpty).map { item =&gt;
+</span>59 <span style=''>      val entry = item.split(':')
+</span>60 <span style=''>      val index = entry(0).toInt - 1
+</span>61 <span style=''>      val value = entry(1).toDouble
+</span>62 <span style=''>      (index, value)
+</span>63 <span style=''>    }.unzip
+</span>64 <span style=''>    </span><span style='background: #AEF1AE'>Row(label, new SparseVector(dim, indices.toArray, values.toArray))</span><span style=''>
+</span>65 <span style=''>  }
+</span>66 <span style=''>
+</span>67 <span style=''>  override val schema: StructType = </span><span style='background: #AEF1AE'>StructType(
+</span>68 <span style=''></span><span style='background: #AEF1AE'>    Array(
+</span>69 <span style=''></span><span style='background: #AEF1AE'>      StructField(labelColumnName, DoubleType, nullable = false),
+</span>70 <span style=''></span><span style='background: #AEF1AE'>      StructField(featuresColumnName, SQLDataTypes.VectorType, nullable = false)))</span><span style=''>
+</span>71 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1725
+        </td>
+        <td>
+          1444
+          -
+          1444
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1721
+        </td>
+        <td>
+          1448
+          -
+          1455
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td style="background: #AEF1AE">
+          LibSVMResponseRowDeserializer.this.dim.&lt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1724
+        </td>
+        <td>
+          1444
+          -
+          1444
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1722
+        </td>
+        <td>
+          1463
+          -
+          1538
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(&quot;Vector dimension must not be negative&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1723
+        </td>
+        <td>
+          1463
+          -
+          1538
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(&quot;Vector dimension must not be negative&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1728
+        </td>
+        <td>
+          1891
+          -
+          1891
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.Row]((ClassTag.apply[org.apache.spark.sql.Row](classOf[org.apache.spark.sql.Row]): scala.reflect.ClassTag[org.apache.spark.sql.Row]))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1730
+        </td>
+        <td>
+          1851
+          -
+          1916
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqLike.iterator
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[org.apache.spark.sql.Row](scala.this.Predef.refArrayOps[String](new scala.this.Predef.String(responseData).split(&quot;\n&quot;)).map[org.apache.spark.sql.Row, Array[org.apache.spark.sql.Row]]({
+  ((record: String) =&gt; LibSVMResponseRowDeserializer.this.parseLibSVMRow(record))
+})(scala.this.Array.canBuildFrom[org.apache.spark.sql.Row]((ClassTag.apply[org.apache.spark.sql.Row](classOf[org.apache.spark.sql.Row]): scala.reflect.ClassTag[org.apache.spark.sql.Row])))).iterator
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1727
+        </td>
+        <td>
+          1892
+          -
+          1906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.LibSVMResponseRowDeserializer.parseLibSVMRow
+        </td>
+        <td style="background: #AEF1AE">
+          LibSVMResponseRowDeserializer.this.parseLibSVMRow(record)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1726
+        </td>
+        <td>
+          1851
+          -
+          1887
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.this.Predef.String(responseData).split(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1729
+        </td>
+        <td>
+          1851
+          -
+          1907
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[String](new scala.this.Predef.String(responseData).split(&quot;\n&quot;)).map[org.apache.spark.sql.Row, Array[org.apache.spark.sql.Row]]({
+  ((record: String) =&gt; LibSVMResponseRowDeserializer.this.parseLibSVMRow(record))
+})(scala.this.Array.canBuildFrom[org.apache.spark.sql.Row]((ClassTag.apply[org.apache.spark.sql.Row](classOf[org.apache.spark.sql.Row]): scala.reflect.ClassTag[org.apache.spark.sql.Row])))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1731
+        </td>
+        <td>
+          2068
+          -
+          2092
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.TEXT_LIBSVM
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.transformation.`package`.ContentTypes.TEXT_LIBSVM
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1732
+        </td>
+        <td>
+          2164
+          -
+          2181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.split
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(record).split(' ')
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1734
+        </td>
+        <td>
+          2198
+          -
+          2217
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toDouble
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(scala.this.Predef.refArrayOps[String](items).head).toDouble
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1733
+        </td>
+        <td>
+          2198
+          -
+          2208
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.head
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[String](items).head
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1736
+        </td>
+        <td>
+          2236
+          -
+          2236
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1735
+        </td>
+        <td>
+          2227
+          -
+          2227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1737
+        </td>
+        <td>
+          2462
+          -
+          2465
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.LibSVMResponseRowDeserializer.dim
+        </td>
+        <td style="background: #AEF1AE">
+          LibSVMResponseRowDeserializer.this.dim
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1739
+        </td>
+        <td>
+          2484
+          -
+          2498
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.toArray
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.doubleArrayOps(values).toArray[Double]((ClassTag.Double: scala.reflect.ClassTag[Double]))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1738
+        </td>
+        <td>
+          2467
+          -
+          2482
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.toArray
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.intArrayOps(indices).toArray[Int]((ClassTag.Int: scala.reflect.ClassTag[Int]))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1741
+        </td>
+        <td>
+          2434
+          -
+          2500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Row.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Row.apply(label, new org.apache.spark.ml.linalg.SparseVector(LibSVMResponseRowDeserializer.this.dim, scala.this.Predef.intArrayOps(indices).toArray[Int]((ClassTag.Int: scala.reflect.ClassTag[Int])), scala.this.Predef.doubleArrayOps(values).toArray[Double]((ClassTag.Double: scala.reflect.ClassTag[Double]))))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1740
+        </td>
+        <td>
+          2445
+          -
+          2499
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.linalg.SparseVector.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.linalg.SparseVector(LibSVMResponseRowDeserializer.this.dim, scala.this.Predef.intArrayOps(indices).toArray[Int]((ClassTag.Int: scala.reflect.ClassTag[Int])), scala.this.Predef.doubleArrayOps(values).toArray[Double]((ClassTag.Double: scala.reflect.ClassTag[Double])))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1753
+        </td>
+        <td>
+          2542
+          -
+          2713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.Array.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(LibSVMResponseRowDeserializer.this.labelColumnName, org.apache.spark.sql.types.DoubleType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(LibSVMResponseRowDeserializer.this.featuresColumnName, org.apache.spark.ml.linalg.SQLDataTypes.VectorType, false, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1752
+        </td>
+        <td>
+          2558
+          -
+          2712
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(LibSVMResponseRowDeserializer.this.labelColumnName, org.apache.spark.sql.types.DoubleType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(LibSVMResponseRowDeserializer.this.featuresColumnName, org.apache.spark.ml.linalg.SQLDataTypes.VectorType, false, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1743
+        </td>
+        <td>
+          2600
+          -
+          2610
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1746
+        </td>
+        <td>
+          2571
+          -
+          2629
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(LibSVMResponseRowDeserializer.this.labelColumnName, org.apache.spark.sql.types.DoubleType, false, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1742
+        </td>
+        <td>
+          2583
+          -
+          2598
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.LibSVMResponseRowDeserializer.labelColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          LibSVMResponseRowDeserializer.this.labelColumnName
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1745
+        </td>
+        <td>
+          2571
+          -
+          2571
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1744
+        </td>
+        <td>
+          2623
+          -
+          2628
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1748
+        </td>
+        <td>
+          2669
+          -
+          2692
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1751
+        </td>
+        <td>
+          2637
+          -
+          2711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(LibSVMResponseRowDeserializer.this.featuresColumnName, org.apache.spark.ml.linalg.SQLDataTypes.VectorType, false, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1747
+        </td>
+        <td>
+          2649
+          -
+          2667
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.LibSVMResponseRowDeserializer.featuresColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          LibSVMResponseRowDeserializer.this.featuresColumnName
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1750
+        </td>
+        <td>
+          2637
+          -
+          2637
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1749
+        </td>
+        <td>
+          2705
+          -
+          2710
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

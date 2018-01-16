@@ -1,0 +1,899 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/SageMakerResourceCleanup.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk
+</span>17 <span style=''>
+</span>18 <span style=''>import scala.util.{Failure, Success, Try}
+</span>19 <span style=''>
+</span>20 <span style=''>import com.amazonaws.retry.RetryUtils
+</span>21 <span style=''>
+</span>22 <span style=''>import com.amazonaws.services.sagemaker.AmazonSageMaker
+</span>23 <span style=''>import com.amazonaws.services.sagemaker.model._
+</span>24 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.exceptions.{SageMakerResourceCleanupException, SageMakerSparkSDKException}
+</span>25 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils
+</span>26 <span style=''>
+</span>27 <span style=''>/**
+</span>28 <span style=''>  * Deletes any SageMaker entities created during operation of the SageMaker
+</span>29 <span style=''>  * Estimator and Transformer.
+</span>30 <span style=''>  *
+</span>31 <span style=''>  * @param sagemaker The AWS SDK client used to make requests to SageMaker for deleting
+</span>32 <span style=''>  *                Training and Hosting resources.
+</span>33 <span style=''>  */
+</span>34 <span style=''>class SageMakerResourceCleanup(sagemaker : AmazonSageMaker) {
+</span>35 <span style=''>
+</span>36 <span style=''>  /**
+</span>37 <span style=''>    * Deletes any SageMaker entities which have been created and still exist.
+</span>38 <span style=''>    * Any transient exceptions occurring from service calls will be rethrown wrapped in a
+</span>39 <span style=''>    * [[com.amazonaws.services.sagemaker.sparksdk.exceptions.SageMakerResourceCleanupException
+</span>40 <span style=''>    * SageMakerResourceCleanupException]] and can be retried.
+</span>41 <span style=''>    *
+</span>42 <span style=''>    * @param resources The set of entities which have been created.
+</span>43 <span style=''>    *                  Can be obtained from [[SageMakerModel.getCreatedResources]],
+</span>44 <span style=''>    *                  [[SageMakerEstimator.getCreatedResources]],
+</span>45 <span style=''>    *                  or any [[SageMakerSparkSDKException]] thrown during usage.
+</span>46 <span style=''>    */
+</span>47 <span style=''>  def deleteResources(resources: CreatedResources): Unit = {
+</span>48 <span style=''>    /* Only attempt to delete resources which were created during the execution of
+</span>49 <span style=''>     * the SageMaker Estimator/Model, to avoid accidentally deleting already existing resources
+</span>50 <span style=''>     * with the same name.
+</span>51 <span style=''>     *
+</span>52 <span style=''>     * For each resource which was created, first make a Describe call.
+</span>53 <span style=''>     * Only make the corresponding Delete call if the Describe call succeeded.
+</span>54 <span style=''>     */
+</span>55 <span style=''>
+</span>56 <span style=''>    try {
+</span>57 <span style=''>      </span><span style='background: #AEF1AE'>resources.endpointName.foreach(deleteEndpoint(_))
+</span>58 <span style=''></span><span style='background: #AEF1AE'>      resources.endpointConfigName.foreach(deleteEndpointConfig(_))
+</span>59 <span style=''></span><span style='background: #AEF1AE'>      resources.modelName.foreach(deleteModel(_))</span><span style=''>
+</span>60 <span style=''>    } catch {
+</span>61 <span style=''>      case t: Throwable =&gt; </span><span style='background: #AEF1AE'>throw new SageMakerResourceCleanupException(&quot;Resource cleanup failed.&quot; +
+</span>62 <span style=''></span><span style='background: #AEF1AE'>        &quot; Cleanup can be retried if appropriate by calling deleteResources again.&quot;, t, resources)</span><span style=''>
+</span>63 <span style=''>    }
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  def deleteEndpoint(name: String): Unit = {
+</span>67 <span style=''>    val describeEndpointRequest = </span><span style='background: #AEF1AE'>new DescribeEndpointRequest().withEndpointName(name)</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeEndpointRequest)</span><span style=''>
+</span>69 <span style=''>    </span><span style='background: #AEF1AE'>tryDescribe(sagemaker.describeEndpoint(describeEndpointRequest))
+</span>70 <span style=''></span><span style='background: #AEF1AE'>      .foreach(_ =&gt; {
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        val deleteRequest = new DeleteEndpointRequest().withEndpointName(name)
+</span>72 <span style=''></span><span style='background: #AEF1AE'>        InternalUtils.applyUserAgent(deleteRequest)
+</span>73 <span style=''></span><span style='background: #AEF1AE'>        sagemaker.deleteEndpoint(deleteRequest)
+</span>74 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  def deleteEndpointConfig(name: String): Unit = {
+</span>78 <span style=''>    val describeEndpointConfigRequest = </span><span style='background: #AEF1AE'>new DescribeEndpointConfigRequest()
+</span>79 <span style=''></span><span style='background: #AEF1AE'>      .withEndpointConfigName(name)</span><span style=''>
+</span>80 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeEndpointConfigRequest)</span><span style=''>
+</span>81 <span style=''>    </span><span style='background: #AEF1AE'>tryDescribe(sagemaker.describeEndpointConfig(describeEndpointConfigRequest))
+</span>82 <span style=''></span><span style='background: #AEF1AE'>      .foreach(_ =&gt; {
+</span>83 <span style=''></span><span style='background: #AEF1AE'>        val deleteRequest = new DeleteEndpointConfigRequest().withEndpointConfigName(name)
+</span>84 <span style=''></span><span style='background: #AEF1AE'>        InternalUtils.applyUserAgent(deleteRequest)
+</span>85 <span style=''></span><span style='background: #AEF1AE'>        sagemaker.deleteEndpointConfig(deleteRequest)
+</span>86 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>87 <span style=''>  }
+</span>88 <span style=''>
+</span>89 <span style=''>  def deleteModel(name: String): Unit = {
+</span>90 <span style=''>    val describeModelRequest = </span><span style='background: #AEF1AE'>new DescribeModelRequest().withModelName(name)</span><span style=''>
+</span>91 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeModelRequest)</span><span style=''>
+</span>92 <span style=''>    </span><span style='background: #AEF1AE'>tryDescribe(sagemaker.describeModel(describeModelRequest))
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      .foreach(_ =&gt; {
+</span>94 <span style=''></span><span style='background: #AEF1AE'>        val deleteRequest = new DeleteModelRequest().withModelName(name)
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        InternalUtils.applyUserAgent(deleteRequest)
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        sagemaker.deleteModel(deleteRequest)
+</span>97 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>98 <span style=''>  }
+</span>99 <span style=''>
+</span>100 <span style=''>  /* Returns a Success if the entity exists, a Failure if it doesn't, or throws an Exception,
+</span>101 <span style=''>   * which indicates that we aren't sure, and that this can be retried. */
+</span>102 <span style=''>  private def tryDescribe[T](describeCall: =&gt; T): Try[T] = {
+</span>103 <span style=''>    </span><span style='background: #AEF1AE'>Try(describeCall)</span><span style=''> match {
+</span>104 <span style=''>      case Success(v) =&gt; </span><span style='background: #AEF1AE'>Success(v)</span><span style=''>
+</span>105 <span style=''>      case Failure(e) =&gt;
+</span>106 <span style=''>        e match {
+</span>107 <span style=''>          case e : AmazonSageMakerException if </span><span style='background: #AEF1AE'>!RetryUtils.isRetryableServiceException(e)</span><span style=''>
+</span>108 <span style=''>            =&gt; </span><span style='background: #AEF1AE'>Failure(e)</span><span style=''>
+</span>109 <span style=''>          case t: Throwable =&gt; </span><span style='background: #AEF1AE'>throw t</span><span style=''>
+</span>110 <span style=''>        }
+</span>111 <span style=''>    }
+</span>112 <span style=''>  }
+</span>113 <span style=''>}
+</span>114 <span style=''>
+</span>115 <span style=''>/**
+</span>116 <span style=''>  * Resources that may have been created during operation of the SageMaker Estimator and
+</span>117 <span style=''>  * Model.
+</span>118 <span style=''>  *
+</span>119 <span style=''>  * @param modelName The name of the SageMaker Model that was created, or empty if it wasn't
+</span>120 <span style=''>  *                  created.
+</span>121 <span style=''>  * @param endpointConfigName The name of the SageMaker EndpointConfig that was
+</span>122 <span style=''>  *                           created, or empty if it wasn't created.
+</span>123 <span style=''>  * @param endpointName The name of the SageMaker Endpoint that was created, or empty
+</span>124 <span style=''>  *                     if it wasn't created.
+</span>125 <span style=''>  */
+</span>126 <span style=''>case class CreatedResources(modelName : Option[String],
+</span>127 <span style=''>                            endpointConfigName : Option[String],
+</span>128 <span style=''>                            endpointName : Option[String])
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          2435
+          -
+          2602
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  resources.endpointName.foreach[Unit](((x$1: String) =&gt; SageMakerResourceCleanup.this.deleteEndpoint(x$1)));
+  resources.endpointConfigName.foreach[Unit](((x$2: String) =&gt; SageMakerResourceCleanup.this.deleteEndpointConfig(x$2)));
+  resources.modelName.foreach[Unit](((x$3: String) =&gt; SageMakerResourceCleanup.this.deleteModel(x$3)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          2435
+          -
+          2484
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          resources.endpointName.foreach[Unit](((x$1: String) =&gt; SageMakerResourceCleanup.this.deleteEndpoint(x$1)))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          2466
+          -
+          2483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerResourceCleanup.deleteEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.deleteEndpoint(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          2491
+          -
+          2552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          resources.endpointConfigName.foreach[Unit](((x$2: String) =&gt; SageMakerResourceCleanup.this.deleteEndpointConfig(x$2)))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          2528
+          -
+          2551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerResourceCleanup.deleteEndpointConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.deleteEndpointConfig(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          2559
+          -
+          2602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          resources.modelName.foreach[Unit](((x$3: String) =&gt; SageMakerResourceCleanup.this.deleteModel(x$3)))
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          2587
+          -
+          2601
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerResourceCleanup.deleteModel
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.deleteModel(x$3)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          2644
+          -
+          2814
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new com.amazonaws.services.sagemaker.sparksdk.exceptions.SageMakerResourceCleanupException(&quot;Resource cleanup failed. Cleanup can be retried if appropriate by calling deleteResources again.&quot;, t, resources)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          2905
+          -
+          2957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointRequest.withEndpointName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeEndpointRequest().withEndpointName(name)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          2962
+          -
+          3015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeEndpointRequest)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          3032
+          -
+          3083
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.sagemaker.describeEndpoint(describeEndpointRequest)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          3020
+          -
+          3294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.tryDescribe[com.amazonaws.services.sagemaker.model.DescribeEndpointResult](SageMakerResourceCleanup.this.sagemaker.describeEndpoint(describeEndpointRequest)).foreach[com.amazonaws.services.sagemaker.model.DeleteEndpointResult](((x$4: com.amazonaws.services.sagemaker.model.DescribeEndpointResult) =&gt; {
+  val deleteRequest: com.amazonaws.services.sagemaker.model.DeleteEndpointRequest = new com.amazonaws.services.sagemaker.model.DeleteEndpointRequest().withEndpointName(name);
+  com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(deleteRequest);
+  SageMakerResourceCleanup.this.sagemaker.deleteEndpoint(deleteRequest)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          3135
+          -
+          3185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DeleteEndpointRequest.withEndpointName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DeleteEndpointRequest().withEndpointName(name)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          3194
+          -
+          3237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(deleteRequest)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          3246
+          -
+          3285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.deleteEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.sagemaker.deleteEndpoint(deleteRequest)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          3391
+          -
+          3462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointConfigRequest.withEndpointConfigName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeEndpointConfigRequest().withEndpointConfigName(name)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          3467
+          -
+          3526
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeEndpointConfigRequest)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          3543
+          -
+          3606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeEndpointConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.sagemaker.describeEndpointConfig(describeEndpointConfigRequest)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          3531
+          -
+          3835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.tryDescribe[com.amazonaws.services.sagemaker.model.DescribeEndpointConfigResult](SageMakerResourceCleanup.this.sagemaker.describeEndpointConfig(describeEndpointConfigRequest)).foreach[com.amazonaws.services.sagemaker.model.DeleteEndpointConfigResult](((x$5: com.amazonaws.services.sagemaker.model.DescribeEndpointConfigResult) =&gt; {
+  val deleteRequest: com.amazonaws.services.sagemaker.model.DeleteEndpointConfigRequest = new com.amazonaws.services.sagemaker.model.DeleteEndpointConfigRequest().withEndpointConfigName(name);
+  com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(deleteRequest);
+  SageMakerResourceCleanup.this.sagemaker.deleteEndpointConfig(deleteRequest)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          3658
+          -
+          3720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DeleteEndpointConfigRequest.withEndpointConfigName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DeleteEndpointConfigRequest().withEndpointConfigName(name)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          3729
+          -
+          3772
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(deleteRequest)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          3781
+          -
+          3826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.deleteEndpointConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.sagemaker.deleteEndpointConfig(deleteRequest)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          3914
+          -
+          3960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeModelRequest.withModelName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeModelRequest().withModelName(name)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          3965
+          -
+          4015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeModelRequest)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          4032
+          -
+          4077
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeModel
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.sagemaker.describeModel(describeModelRequest)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          4020
+          -
+          4279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.tryDescribe[com.amazonaws.services.sagemaker.model.DescribeModelResult](SageMakerResourceCleanup.this.sagemaker.describeModel(describeModelRequest)).foreach[com.amazonaws.services.sagemaker.model.DeleteModelResult](((x$6: com.amazonaws.services.sagemaker.model.DescribeModelResult) =&gt; {
+  val deleteRequest: com.amazonaws.services.sagemaker.model.DeleteModelRequest = new com.amazonaws.services.sagemaker.model.DeleteModelRequest().withModelName(name);
+  com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(deleteRequest);
+  SageMakerResourceCleanup.this.sagemaker.deleteModel(deleteRequest)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          4129
+          -
+          4173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DeleteModelRequest.withModelName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DeleteModelRequest().withModelName(name)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          4182
+          -
+          4225
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(deleteRequest)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          4234
+          -
+          4270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.deleteModel
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerResourceCleanup.this.sagemaker.deleteModel(deleteRequest)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          4519
+          -
+          4536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[T](describeCall)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          4570
+          -
+          4580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Success.apply[T](v)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          4671
+          -
+          4713
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.retry.RetryUtils.isRetryableServiceException(e).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          4729
+          -
+          4739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Failure.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Failure.apply[Nothing](e)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          4771
+          -
+          4778
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw t
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

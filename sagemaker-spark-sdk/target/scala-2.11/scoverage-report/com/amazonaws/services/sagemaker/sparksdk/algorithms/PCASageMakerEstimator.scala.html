@@ -1,0 +1,1570 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/algorithms/PCASageMakerEstimator.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.algorithms
+</span>17 <span style=''>
+</span>18 <span style=''>import com.amazonaws.regions.DefaultAwsRegionProviderChain
+</span>19 <span style=''>import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
+</span>20 <span style=''>import com.amazonaws.services.securitytoken.{AWSSecurityTokenService, AWSSecurityTokenServiceClientBuilder}
+</span>21 <span style=''>
+</span>22 <span style=''>import org.apache.spark.ml.param._
+</span>23 <span style=''>import org.apache.spark.ml.util.Identifiable
+</span>24 <span style=''>import org.apache.spark.sql.Row
+</span>25 <span style=''>import org.apache.spark.sql.types.StructType
+</span>26 <span style=''>
+</span>27 <span style=''>import com.amazonaws.services.sagemaker.{AmazonSageMaker, AmazonSageMakerClientBuilder}
+</span>28 <span style=''>import com.amazonaws.services.sagemaker.model.{S3DataDistribution, TrainingInputMode}
+</span>29 <span style=''>import com.amazonaws.services.sagemaker.sparksdk._
+</span>30 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.EndpointCreationPolicy
+</span>31 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{RequestRowSerializer, ResponseRowDeserializer}
+</span>32 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.PCAProtobufResponseRowDeserializer
+</span>33 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.ProtobufRequestRowSerializer
+</span>34 <span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>/**
+</span>37 <span style=''>  * Common params for [[PCASageMakerEstimator]] with accessors
+</span>38 <span style=''>  */
+</span>39 <span style=''>private[algorithms] trait PCAParams extends SageMakerAlgorithmParams {
+</span>40 <span style=''>
+</span>41 <span style=''>  /**
+</span>42 <span style=''>    * Number of principal components. Required.
+</span>43 <span style=''>    */
+</span>44 <span style=''>  val numComponents : IntParam = </span><span style='background: #AEF1AE'>new IntParam(this, &quot;num_components&quot;,
+</span>45 <span style=''></span><span style='background: #AEF1AE'>    &quot;Number of principal components. &quot; +
+</span>46 <span style=''></span><span style='background: #AEF1AE'>    &quot;Must be &gt; 0&quot;,
+</span>47 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.gt(0))</span><span style=''>
+</span>48 <span style=''>  def getNumComponents: Int = </span><span style='background: #AEF1AE'>$(numComponents)</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>  /**
+</span>51 <span style=''>    * PCA algorithm. Supported options: &quot;regular&quot;, &quot;stable&quot;, and &quot;randomized&quot;.
+</span>52 <span style=''>    * Default: &quot;regular&quot;.
+</span>53 <span style=''>    */
+</span>54 <span style=''>  val algorithmMode : Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;algorithm_mode&quot;,
+</span>55 <span style=''></span><span style='background: #AEF1AE'>    &quot;PCA algorithm. &quot; +
+</span>56 <span style=''></span><span style='background: #AEF1AE'>    &quot;Supported options: 'regular', 'stable', and 'randomized'.&quot;,
+</span>57 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.inArray(Array(&quot;regular&quot;, &quot;stable&quot;, &quot;randomized&quot;)))</span><span style=''>
+</span>58 <span style=''>  def getAlgorithmMode: String = </span><span style='background: #AEF1AE'>$(algorithmMode)</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  /**
+</span>61 <span style=''>    * Whether to subtract the mean during training and inference
+</span>62 <span style=''>    * Default: True
+</span>63 <span style=''>    */
+</span>64 <span style=''>  val subtractMean : Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;subtract_mean&quot;,
+</span>65 <span style=''></span><span style='background: #AEF1AE'>    &quot;If true, the data will be unbiased both during train and at inference&quot;,
+</span>66 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.inArray(Array(&quot;True&quot;, &quot;False&quot;)))</span><span style=''>
+</span>67 <span style=''>  def getSubtractMean: Boolean = </span><span style='background: #AEF1AE'>parseTrueAndFalse(subtractMean)</span><span style=''>
+</span>68 <span style=''>
+</span>69 <span style=''>  /**
+</span>70 <span style=''>    * Number of extra components to compute. Must be -1 or &gt; 0.
+</span>71 <span style=''>    * Valid for &quot;randomized&quot; mode. Ignored by other modes.
+</span>72 <span style=''>    * Initializes a random matrix for covariance computation independent from the desired
+</span>73 <span style=''>    * num_components. As it grows larger, the solution is more accurate but the runtime and memory
+</span>74 <span style=''>    * consumption increase linearly.
+</span>75 <span style=''>    * Default: -1
+</span>76 <span style=''>    */
+</span>77 <span style=''>  val extraComponents: IntParam = </span><span style='background: #AEF1AE'>new IntParam(this, &quot;extra_components&quot;,
+</span>78 <span style=''></span><span style='background: #AEF1AE'>    &quot;Number of extra components to compute&quot;,
+</span>79 <span style=''></span><span style='background: #AEF1AE'>    (extraComponents: Int) =&gt; extraComponents == -1 || extraComponents &gt; 0)</span><span style=''>
+</span>80 <span style=''>  def getExtraComponents: Integer = </span><span style='background: #AEF1AE'>$(extraComponents)</span><span style=''>
+</span>81 <span style=''>}
+</span>82 <span style=''>
+</span>83 <span style=''>object PCASageMakerEstimator {
+</span>84 <span style=''>  val algorithmName = </span><span style='background: #AEF1AE'>&quot;pca&quot;</span><span style=''>
+</span>85 <span style=''>  val algorithmTag = </span><span style='background: #AEF1AE'>&quot;1&quot;</span><span style=''>
+</span>86 <span style=''>  val regionAccountMap = </span><span style='background: #AEF1AE'>SagerMakerRegionAccountMaps.AlgorithmsAccountMap</span><span style=''>
+</span>87 <span style=''>}
+</span>88 <span style=''>
+</span>89 <span style=''>/**
+</span>90 <span style=''>  * A [[SageMakerEstimator]] that runs a PCA training job in SageMaker and returns
+</span>91 <span style=''>  * a [[SageMakerModel]] that can be used to transform a DataFrame using
+</span>92 <span style=''>  * the hosted PCA model. PCA, or Principal Component Analysis, is useful
+</span>93 <span style=''>  * for reducing the dimensionality of data before training with another algorithm.
+</span>94 <span style=''>  *
+</span>95 <span style=''>  * Amazon SageMaker PCA trains on RecordIO-encoded Amazon Record protobuf data.
+</span>96 <span style=''>  * SageMaker Spark writes a DataFrame to S3 by selecting a column of Vectors named &quot;features&quot;
+</span>97 <span style=''>  * and, if present, a column of Doubles named &quot;label&quot;. These names are configurable by passing
+</span>98 <span style=''>  * a map with entries in trainingSparkDataFormatOptions with key &quot;labelColumnName&quot; or
+</span>99 <span style=''>  * &quot;featuresColumnName&quot;, with values corresponding to the desired label and features columns.
+</span>100 <span style=''>  *
+</span>101 <span style=''>  * PCASageMakerEstimator uses [[ProtobufRequestRowSerializer]] to serialize Rows into
+</span>102 <span style=''>  * RecordIO-encoded Amazon Record protobuf messages for inference, by default selecting
+</span>103 <span style=''>  * the column named &quot;features&quot; expected to contain a Vector of Doubles.
+</span>104 <span style=''>  *
+</span>105 <span style=''>  * Inferences made against an Endpoint hosting a PCA model contain
+</span>106 <span style=''>  * a &quot;projection&quot; field appended to the input DataFrame as a Dense Vector of Doubles.
+</span>107 <span style=''>  *
+</span>108 <span style=''>  * @param sagemakerRole The SageMaker TrainingJob and Hosting IAM Role. Used by a SageMaker to
+</span>109 <span style=''>  *                      access S3 and ECR resources. SageMaker hosted Endpoints instances
+</span>110 <span style=''>  *                      launched by this Estimator run with this role.
+</span>111 <span style=''>  * @param trainingInstanceType The SageMaker TrainingJob Instance Type to use
+</span>112 <span style=''>  * @param trainingInstanceCount The number of instances of instanceType to run an
+</span>113 <span style=''>  *                              SageMaker Training Job with
+</span>114 <span style=''>  * @param endpointInstanceType The SageMaker Endpoint Confing instance type
+</span>115 <span style=''>  * @param endpointInitialInstanceCount The SageMaker Endpoint Config minimum number of instances
+</span>116 <span style=''>  *                                     that can be used to host modelImage
+</span>117 <span style=''>  * @param requestRowSerializer Serializes Spark DataFrame [[Row]]s for transformation by Models
+</span>118 <span style=''>  *                             built from this Estimator.
+</span>119 <span style=''>  * @param responseRowDeserializer Deserializes an Endpoint response into a series of [[Row]]s.
+</span>120 <span style=''>  * @param trainingInputS3DataPath An S3 location to upload SageMaker Training Job input data to.
+</span>121 <span style=''>  * @param trainingOutputS3DataPath An S3 location for SageMaker to store Training Job output
+</span>122 <span style=''>  *                                 data to.
+</span>123 <span style=''>  * @param trainingInstanceVolumeSizeInGB The EBS volume size in gigabytes of each instance.
+</span>124 <span style=''>  * @param trainingProjectedColumns The columns to project from the Dataset being fit before
+</span>125 <span style=''>  *                                 training. If an Optional.empty is passed then no specific
+</span>126 <span style=''>  *                                 projection will occur and all columns will be serialized.
+</span>127 <span style=''>  * @param trainingChannelName The SageMaker Channel name to input serialized Dataset fit input to
+</span>128 <span style=''>  * @param trainingContentType The MIME type of the training data.
+</span>129 <span style=''>  * @param trainingS3DataDistribution The SageMaker Training Job S3 data distribution scheme.
+</span>130 <span style=''>  * @param trainingSparkDataFormat The Spark Data Format name used to serialize the Dataset being
+</span>131 <span style=''>  *                                fit for input to SageMaker.
+</span>132 <span style=''>  * @param trainingSparkDataFormatOptions The Spark Data Format Options used during serialization of
+</span>133 <span style=''>  *                                       the Dataset being fit.
+</span>134 <span style=''>  * @param trainingInputMode The SageMaker Training Job Channel input mode.
+</span>135 <span style=''>  * @param trainingCompressionCodec The type of compression to use when serializing the Dataset
+</span>136 <span style=''>  *                                 being fit for input to SageMaker.
+</span>137 <span style=''>  * @param trainingMaxRuntimeInSeconds A SageMaker Training Job Termination Condition
+</span>138 <span style=''>  *                                    MaxRuntimeInHours.
+</span>139 <span style=''>  * @param trainingKmsKeyId A KMS key ID for the Output Data Source
+</span>140 <span style=''>  * @param modelEnvironmentVariables The environment variables that SageMaker will set on the model
+</span>141 <span style=''>  *                                  container during execution.
+</span>142 <span style=''>  * @param endpointCreationPolicy Defines how a SageMaker Endpoint referenced by a
+</span>143 <span style=''>  *                               SageMakerModel is created.
+</span>144 <span style=''>  * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>145 <span style=''>  *                        and CreateEndpoint requests.
+</span>146 <span style=''>  * @param region The region in which to run the algorithm. If not specified, gets the region from
+</span>147 <span style=''>  *               the DefaultAwsRegionProviderChain.
+</span>148 <span style=''>  * @param s3Client AmazonS3. Used to create a bucket for staging SageMaker Training Job input
+</span>149 <span style=''>  *                 and/or output if either are set to S3AutoCreatePath.
+</span>150 <span style=''>  * @param stsClient AmazonSTS. Used to resolve the account number when creating staging
+</span>151 <span style=''>  *                  input / output buckets.
+</span>152 <span style=''>  * @param modelPrependInputRowsToTransformationRows Whether the transformation result on Models
+</span>153 <span style=''>  *        built by this Estimator should also include the input Rows. If true, each output Row
+</span>154 <span style=''>  *        is formed by a concatenation of the input Row with the corresponding Row produced by
+</span>155 <span style=''>  *        SageMaker Endpoint invocation, produced by responseRowDeserializer.
+</span>156 <span style=''>  *        If false, each output Row is just taken from responseRowDeserializer.
+</span>157 <span style=''>  * @param deleteStagingDataAfterTraining Whether to remove the training data on s3 after training
+</span>158 <span style=''>  *                                       is complete or failed.
+</span>159 <span style=''>  * @param namePolicyFactory The [[NamePolicyFactory]] to use when naming SageMaker entities
+</span>160 <span style=''>  *        created during fit
+</span>161 <span style=''>  * @param uid The unique identifier of this Estimator. Used to represent this stage in Spark
+</span>162 <span style=''>  *            ML pipelines.
+</span>163 <span style=''>  */
+</span>164 <span style=''>class PCASageMakerEstimator(
+</span>165 <span style=''>                       override val sagemakerRole : IAMRoleResource = IAMRoleFromConfig(),
+</span>166 <span style=''>                       override val trainingInstanceType : String,
+</span>167 <span style=''>                       override val trainingInstanceCount : Int,
+</span>168 <span style=''>                       override val endpointInstanceType : String,
+</span>169 <span style=''>                       override val endpointInitialInstanceCount : Int,
+</span>170 <span style=''>                       override val requestRowSerializer : RequestRowSerializer =
+</span>171 <span style=''>                       new ProtobufRequestRowSerializer(),
+</span>172 <span style=''>                       override val responseRowDeserializer : ResponseRowDeserializer =
+</span>173 <span style=''>                       new PCAProtobufResponseRowDeserializer(),
+</span>174 <span style=''>                       override val trainingInputS3DataPath : S3Resource = S3AutoCreatePath(),
+</span>175 <span style=''>                       override val trainingOutputS3DataPath : S3Resource = S3AutoCreatePath(),
+</span>176 <span style=''>                       override val trainingInstanceVolumeSizeInGB : Int = 1024,
+</span>177 <span style=''>                       override val trainingProjectedColumns : Option[List[String]] = None,
+</span>178 <span style=''>                       override val trainingChannelName : String = &quot;train&quot;,
+</span>179 <span style=''>                       override val trainingContentType: Option[String] = None,
+</span>180 <span style=''>                       override val trainingS3DataDistribution : String
+</span>181 <span style=''>                         = S3DataDistribution.ShardedByS3Key.toString,
+</span>182 <span style=''>                       override val trainingSparkDataFormat : String = &quot;sagemaker&quot;,
+</span>183 <span style=''>                       override val trainingSparkDataFormatOptions : Map[String, String] = Map(),
+</span>184 <span style=''>                       override val trainingInputMode : String = TrainingInputMode.File.toString,
+</span>185 <span style=''>                       override val trainingCompressionCodec : Option[String] = None,
+</span>186 <span style=''>                       override val trainingMaxRuntimeInSeconds : Int = 24 * 60 * 60,
+</span>187 <span style=''>                       override val trainingKmsKeyId : Option[String] = None,
+</span>188 <span style=''>                       override val modelEnvironmentVariables : Map[String, String] = Map(),
+</span>189 <span style=''>                       override val endpointCreationPolicy : EndpointCreationPolicy =
+</span>190 <span style=''>                         EndpointCreationPolicy.CREATE_ON_CONSTRUCT,
+</span>191 <span style=''>                       override val sagemakerClient : AmazonSageMaker
+</span>192 <span style=''>                         = AmazonSageMakerClientBuilder.defaultClient,
+</span>193 <span style=''>                       val region : Option[String] = None,
+</span>194 <span style=''>                       override val s3Client : AmazonS3 = AmazonS3ClientBuilder.defaultClient(),
+</span>195 <span style=''>                       override val stsClient : AWSSecurityTokenService =
+</span>196 <span style=''>                         AWSSecurityTokenServiceClientBuilder.defaultClient(),
+</span>197 <span style=''>                       override val modelPrependInputRowsToTransformationRows : Boolean = true,
+</span>198 <span style=''>                       override val deleteStagingDataAfterTraining : Boolean = true,
+</span>199 <span style=''>                       override val namePolicyFactory : NamePolicyFactory
+</span>200 <span style=''>                         = new RandomNamePolicyFactory(),
+</span>201 <span style=''>                       override val uid : String = Identifiable.randomUID(&quot;sagemaker&quot;))
+</span>202 <span style=''>  extends SageMakerEstimator(
+</span>203 <span style=''>    trainingImage = SageMakerImageURIProvider.getImage(
+</span>204 <span style=''>      region.getOrElse(new DefaultAwsRegionProviderChain().getRegion),
+</span>205 <span style=''>      PCASageMakerEstimator.regionAccountMap,
+</span>206 <span style=''>      PCASageMakerEstimator.algorithmName, PCASageMakerEstimator.algorithmTag),
+</span>207 <span style=''>    modelImage = SageMakerImageURIProvider.getImage(
+</span>208 <span style=''>      region.getOrElse(new DefaultAwsRegionProviderChain().getRegion),
+</span>209 <span style=''>      PCASageMakerEstimator.regionAccountMap,
+</span>210 <span style=''>      PCASageMakerEstimator.algorithmName, PCASageMakerEstimator.algorithmTag),
+</span>211 <span style=''>    sagemakerRole,
+</span>212 <span style=''>    trainingInstanceType,
+</span>213 <span style=''>    trainingInstanceCount,
+</span>214 <span style=''>    endpointInstanceType,
+</span>215 <span style=''>    endpointInitialInstanceCount,
+</span>216 <span style=''>    requestRowSerializer,
+</span>217 <span style=''>    responseRowDeserializer,
+</span>218 <span style=''>    trainingInputS3DataPath,
+</span>219 <span style=''>    trainingOutputS3DataPath,
+</span>220 <span style=''>    trainingInstanceVolumeSizeInGB,
+</span>221 <span style=''>    trainingProjectedColumns,
+</span>222 <span style=''>    trainingChannelName,
+</span>223 <span style=''>    trainingContentType,
+</span>224 <span style=''>    trainingS3DataDistribution,
+</span>225 <span style=''>    trainingSparkDataFormat,
+</span>226 <span style=''>    trainingSparkDataFormatOptions,
+</span>227 <span style=''>    trainingInputMode,
+</span>228 <span style=''>    trainingCompressionCodec,
+</span>229 <span style=''>    trainingMaxRuntimeInSeconds,
+</span>230 <span style=''>    trainingKmsKeyId,
+</span>231 <span style=''>    modelEnvironmentVariables,
+</span>232 <span style=''>    endpointCreationPolicy,
+</span>233 <span style=''>    sagemakerClient,
+</span>234 <span style=''>    s3Client,
+</span>235 <span style=''>    stsClient,
+</span>236 <span style=''>    modelPrependInputRowsToTransformationRows,
+</span>237 <span style=''>    deleteStagingDataAfterTraining,
+</span>238 <span style=''>    namePolicyFactory,
+</span>239 <span style=''>    uid) with PCAParams {
+</span>240 <span style=''>
+</span>241 <span style=''>  </span><span style='background: #AEF1AE'>setDefault(miniBatchSize -&gt; 1000)</span><span style=''>
+</span>242 <span style=''>
+</span>243 <span style=''>  def setNumComponents(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(numComponents, value)</span><span style=''>
+</span>244 <span style=''>
+</span>245 <span style=''>  def setFeatureDim(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(featureDim, value)</span><span style=''>
+</span>246 <span style=''>
+</span>247 <span style=''>  def setMiniBatchSize(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(miniBatchSize, value)</span><span style=''>
+</span>248 <span style=''>
+</span>249 <span style=''>  def setAlgorithmMode(value: String) : this.type = </span><span style='background: #AEF1AE'>set(algorithmMode, value)</span><span style=''>
+</span>250 <span style=''>
+</span>251 <span style=''>  def setSubtractMean(value: Boolean) : this.type = </span><span style='background: #AEF1AE'>set(subtractMean, value match {
+</span>252 <span style=''></span><span style='background: #AEF1AE'>    case true =&gt; &quot;True&quot;
+</span>253 <span style=''></span><span style='background: #AEF1AE'>    case false =&gt; &quot;False&quot;
+</span>254 <span style=''></span><span style='background: #AEF1AE'>  })</span><span style=''>
+</span>255 <span style=''>
+</span>256 <span style=''>  def setExtraComponents(value: Int) : this.type = </span><span style='background: #AEF1AE'>set(extraComponents, value)</span><span style=''>
+</span>257 <span style=''>
+</span>258 <span style=''>  // Check whether required hyper-parameters are set
+</span>259 <span style=''>  override def transformSchema(schema: StructType): StructType = {
+</span>260 <span style=''>    </span><span style='background: #F0ADAD'>$(featureDim)</span><span style=''>
+</span>261 <span style=''>    </span><span style='background: #F0ADAD'>$(numComponents)</span><span style=''>
+</span>262 <span style=''>    </span><span style='background: #F0ADAD'>$(miniBatchSize)</span><span style=''>
+</span>263 <span style=''>    </span><span style='background: #F0ADAD'>super.transformSchema(schema)</span><span style=''>
+</span>264 <span style=''>  }
+</span>265 <span style=''>
+</span>266 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1042
+        </td>
+        <td>
+          1928
+          -
+          2051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.IntParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.IntParam(this, &quot;num_components&quot;, &quot;Number of principal components. Must be &gt; 0&quot;, org.apache.spark.ml.param.ParamValidators.gt[Any](0.0))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1039
+        </td>
+        <td>
+          1947
+          -
+          1963
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;num_components&quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          1969
+          -
+          2023
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Number of principal components. Must be &gt; 0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          2029
+          -
+          2050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.gt
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.gt[Any](0.0)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          2084
+          -
+          2097
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.numComponents
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.numComponents
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1044
+        </td>
+        <td>
+          2082
+          -
+          2098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.$[Int](PCAParams.this.numComponents)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1052
+        </td>
+        <td>
+          2256
+          -
+          2449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;algorithm_mode&quot;, &quot;PCA algorithm. Supported options: \'regular\', \'stable\', and \'randomized\'.&quot;, org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;regular&quot;, &quot;stable&quot;, &quot;randomized&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1045
+        </td>
+        <td>
+          2272
+          -
+          2288
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;algorithm_mode&quot;
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1046
+        </td>
+        <td>
+          2294
+          -
+          2377
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;PCA algorithm. Supported options: \'regular\', \'stable\', and \'randomized\'.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1049
+        </td>
+        <td>
+          2434
+          -
+          2446
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;randomized&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          2383
+          -
+          2448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.inArray
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;regular&quot;, &quot;stable&quot;, &quot;randomized&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1048
+        </td>
+        <td>
+          2424
+          -
+          2432
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;stable&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1047
+        </td>
+        <td>
+          2413
+          -
+          2422
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;regular&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1050
+        </td>
+        <td>
+          2407
+          -
+          2447
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;regular&quot;, &quot;stable&quot;, &quot;randomized&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1054
+        </td>
+        <td>
+          2483
+          -
+          2499
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.$[String](PCAParams.this.algorithmMode)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1053
+        </td>
+        <td>
+          2485
+          -
+          2498
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.algorithmMode
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.algorithmMode
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1061
+        </td>
+        <td>
+          2636
+          -
+          2798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;subtract_mean&quot;, &quot;If true, the data will be unbiased both during train and at inference&quot;, org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;True&quot;, &quot;False&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1055
+        </td>
+        <td>
+          2652
+          -
+          2667
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;subtract_mean&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1056
+        </td>
+        <td>
+          2673
+          -
+          2744
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;If true, the data will be unbiased both during train and at inference&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1058
+        </td>
+        <td>
+          2788
+          -
+          2795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;False&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1057
+        </td>
+        <td>
+          2780
+          -
+          2786
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;True&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1060
+        </td>
+        <td>
+          2750
+          -
+          2797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.inArray
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;True&quot;, &quot;False&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1059
+        </td>
+        <td>
+          2774
+          -
+          2796
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;True&quot;, &quot;False&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1063
+        </td>
+        <td>
+          2832
+          -
+          2863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.parseTrueAndFalse
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.parseTrueAndFalse(PCAParams.this.subtractMean)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1062
+        </td>
+        <td>
+          2850
+          -
+          2862
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.subtractMean
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.subtractMean
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1064
+        </td>
+        <td>
+          3298
+          -
+          3316
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;extra_components&quot;
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1069
+        </td>
+        <td>
+          3279
+          -
+          3438
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.IntParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.IntParam(this, &quot;extra_components&quot;, &quot;Number of extra components to compute&quot;, ((extraComponents: Int) =&gt; extraComponents.==(-1).||(extraComponents.&gt;(0))))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1065
+        </td>
+        <td>
+          3322
+          -
+          3361
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Number of extra components to compute&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1067
+        </td>
+        <td>
+          3418
+          -
+          3437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          extraComponents.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1066
+        </td>
+        <td>
+          3413
+          -
+          3414
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1068
+        </td>
+        <td>
+          3393
+          -
+          3437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          extraComponents.==(-1).||(extraComponents.&gt;(0))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1070
+        </td>
+        <td>
+          3477
+          -
+          3492
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.extraComponents
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.extraComponents
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1072
+        </td>
+        <td>
+          3475
+          -
+          3493
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.int2Integer(PCAParams.this.$[Int](PCAParams.this.extraComponents))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1071
+        </td>
+        <td>
+          3475
+          -
+          3493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          PCAParams.this.$[Int](PCAParams.this.extraComponents)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1073
+        </td>
+        <td>
+          3550
+          -
+          3555
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;pca&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1074
+        </td>
+        <td>
+          3577
+          -
+          3580
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1075
+        </td>
+        <td>
+          3606
+          -
+          3654
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SagerMakerRegionAccountMaps.AlgorithmsAccountMap
+        </td>
+        <td style="background: #AEF1AE">
+          SagerMakerRegionAccountMaps.AlgorithmsAccountMap
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          1076
+        </td>
+        <td>
+          13599
+          -
+          13620
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.miniBatchSize.-&gt;(1000)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          1077
+        </td>
+        <td>
+          13588
+          -
+          13621
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.setDefault
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.setDefault(PCASageMakerEstimator.this.miniBatchSize.-&gt;(1000))
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1079
+        </td>
+        <td>
+          13673
+          -
+          13698
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.set[Int](PCASageMakerEstimator.this.numComponents, value)
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1078
+        </td>
+        <td>
+          13677
+          -
+          13690
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.numComponents
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.numComponents
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          1081
+        </td>
+        <td>
+          13747
+          -
+          13769
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.set[Int](PCASageMakerEstimator.this.featureDim, value)
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          1080
+        </td>
+        <td>
+          13751
+          -
+          13761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.featureDim
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.featureDim
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          1082
+        </td>
+        <td>
+          13825
+          -
+          13838
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.miniBatchSize
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.miniBatchSize
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          1083
+        </td>
+        <td>
+          13821
+          -
+          13846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.set[Int](PCASageMakerEstimator.this.miniBatchSize, value)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1085
+        </td>
+        <td>
+          13900
+          -
+          13925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.set[String](PCASageMakerEstimator.this.algorithmMode, value)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1084
+        </td>
+        <td>
+          13904
+          -
+          13917
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.algorithmMode
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.algorithmMode
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          1089
+        </td>
+        <td>
+          13979
+          -
+          14065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.set[String](PCASageMakerEstimator.this.subtractMean, value match {
+  case true =&gt; &quot;True&quot;
+  case false =&gt; &quot;False&quot;
+})
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          1086
+        </td>
+        <td>
+          13983
+          -
+          13995
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.subtractMean
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.subtractMean
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          1087
+        </td>
+        <td>
+          14028
+          -
+          14034
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;True&quot;
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          1088
+        </td>
+        <td>
+          14053
+          -
+          14060
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;False&quot;
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          1091
+        </td>
+        <td>
+          14118
+          -
+          14145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.set[Int](PCASageMakerEstimator.this.extraComponents, value)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          1090
+        </td>
+        <td>
+          14122
+          -
+          14137
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.extraComponents
+        </td>
+        <td style="background: #AEF1AE">
+          PCASageMakerEstimator.this.extraComponents
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1093
+        </td>
+        <td>
+          14271
+          -
+          14284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.this.$[Int](PCASageMakerEstimator.this.featureDim)
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1092
+        </td>
+        <td>
+          14273
+          -
+          14283
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.featureDim
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.this.featureDim
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          1094
+        </td>
+        <td>
+          14291
+          -
+          14304
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.PCAParams.numComponents
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.this.numComponents
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          1095
+        </td>
+        <td>
+          14289
+          -
+          14305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.this.$[Int](PCASageMakerEstimator.this.numComponents)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1097
+        </td>
+        <td>
+          14310
+          -
+          14326
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.this.$[Int](PCASageMakerEstimator.this.miniBatchSize)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1096
+        </td>
+        <td>
+          14312
+          -
+          14325
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.miniBatchSize
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.this.miniBatchSize
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          1098
+        </td>
+        <td>
+          14331
+          -
+          14360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.transformSchema
+        </td>
+        <td style="background: #F0ADAD">
+          PCASageMakerEstimator.super.transformSchema(schema)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

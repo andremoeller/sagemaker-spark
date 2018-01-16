@@ -1,0 +1,2878 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/algorithms/KMeansSageMakerEstimator.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.algorithms
+</span>17 <span style=''>
+</span>18 <span style=''>import com.amazonaws.regions.DefaultAwsRegionProviderChain
+</span>19 <span style=''>import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
+</span>20 <span style=''>import com.amazonaws.services.securitytoken.{AWSSecurityTokenService, AWSSecurityTokenServiceClientBuilder}
+</span>21 <span style=''>
+</span>22 <span style=''>import org.apache.spark.ml.param._
+</span>23 <span style=''>import org.apache.spark.ml.util.Identifiable
+</span>24 <span style=''>import org.apache.spark.sql.Row
+</span>25 <span style=''>import org.apache.spark.sql.types.StructType
+</span>26 <span style=''>
+</span>27 <span style=''>import com.amazonaws.services.sagemaker.{AmazonSageMaker, AmazonSageMakerClientBuilder}
+</span>28 <span style=''>import com.amazonaws.services.sagemaker.model.{S3DataDistribution, TrainingInputMode}
+</span>29 <span style=''>import com.amazonaws.services.sagemaker.sparksdk._
+</span>30 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.EndpointCreationPolicy
+</span>31 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{RequestRowSerializer, ResponseRowDeserializer}
+</span>32 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.KMeansProtobufResponseRowDeserializer
+</span>33 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.ProtobufRequestRowSerializer
+</span>34 <span style=''>
+</span>35 <span style=''>/**
+</span>36 <span style=''>  * Common params for [[KMeansSageMakerEstimator]] with accessors
+</span>37 <span style=''>  */
+</span>38 <span style=''>private[algorithms] trait KMeansParams extends SageMakerAlgorithmParams {
+</span>39 <span style=''>
+</span>40 <span style=''>  /**
+</span>41 <span style=''>    * The number of clusters to create (k). Must be &gt; 1.
+</span>42 <span style=''>    */
+</span>43 <span style=''>  val k : IntParam = </span><span style='background: #AEF1AE'>new IntParam(this, &quot;k&quot;, &quot;The number of clusters to create. &quot; +
+</span>44 <span style=''></span><span style='background: #AEF1AE'>    &quot;Must be &gt; 1.&quot;, ParamValidators.gtEq(2))</span><span style=''>
+</span>45 <span style=''>  def getK: Int = </span><span style='background: #AEF1AE'>$(k)</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>  /**
+</span>48 <span style=''>    * The initialization algorithm to choose centroids. Must be &quot;random&quot; or &quot;kmeans++&quot;.
+</span>49 <span style=''>    * Default: &quot;random&quot;.
+</span>50 <span style=''>    */
+</span>51 <span style=''>  val initMethod : Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;init_method&quot;,
+</span>52 <span style=''></span><span style='background: #AEF1AE'>    &quot;The initialization algorithm to choose centroids. Supported options: 'random' and 'kmeans++'.&quot;,
+</span>53 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.inArray(Array(&quot;random&quot;, &quot;kmeans++&quot;)))</span><span style=''>
+</span>54 <span style=''>  def getInitMethod: String = </span><span style='background: #AEF1AE'>$(initMethod)</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  /**
+</span>57 <span style=''>    * Maximum iterations for Lloyds EM procedure in the local kmeans used in finalized stage.
+</span>58 <span style=''>    * Must be &gt; 0.
+</span>59 <span style=''>    * Default: 300.
+</span>60 <span style=''>    */
+</span>61 <span style=''>  val maxIter : IntParam = </span><span style='background: #AEF1AE'>new IntParam(this, &quot;local_lloyd_max_iter&quot;,
+</span>62 <span style=''></span><span style='background: #AEF1AE'>    &quot;Maximum iterations for Lloyds EM procedure&quot; +
+</span>63 <span style=''></span><span style='background: #AEF1AE'>    &quot;in the local kmeans used in finalized stage. Must be &gt; 0&quot;, ParamValidators.gtEq(1))</span><span style=''>
+</span>64 <span style=''>  def getMaxIter: Int = </span><span style='background: #AEF1AE'>$(maxIter)</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>  /**
+</span>67 <span style=''>    * Tolerance for change in ssd for early stopping in local kmeans. Must be in range [0, 1].
+</span>68 <span style=''>    * Default: 0.0001.
+</span>69 <span style=''>    */
+</span>70 <span style=''>  val tol : DoubleParam = </span><span style='background: #AEF1AE'>new DoubleParam(this, &quot;local_lloyd_tol&quot;,
+</span>71 <span style=''></span><span style='background: #AEF1AE'>    &quot;Tolerance for change in ssd for early stopping in local kmeans. Must be in range [0, 1].&quot;,
+</span>72 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.inRange(0.0, 1.0))</span><span style=''>
+</span>73 <span style=''>  def getTol: Double = </span><span style='background: #AEF1AE'>$(tol)</span><span style=''>
+</span>74 <span style=''>
+</span>75 <span style=''>  /**
+</span>76 <span style=''>    * The number of trials of the local kmeans algorithm. The output with best loss will be chosen.
+</span>77 <span style=''>    * Must be &gt; 0 or &quot;auto&quot;.
+</span>78 <span style=''>    * Default: &quot;auto&quot;.
+</span>79 <span style=''>    */
+</span>80 <span style=''>  val trialNum : Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;local_lloyd_num_trials&quot;,
+</span>81 <span style=''></span><span style='background: #AEF1AE'>    &quot;The number of trials of the local kmeans algorithm. Must be &gt; 0 or 'auto'.&quot;,
+</span>82 <span style=''></span><span style='background: #AEF1AE'>    autoOrAboveParamValidator(0, false))</span><span style=''>
+</span>83 <span style=''>  def getTrialNum: String = </span><span style='background: #AEF1AE'>$(trialNum)</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>  /**
+</span>86 <span style=''>    * The local initialization algorithm to choose centroids. Must be &quot;random&quot; or &quot;kmeans++&quot;.
+</span>87 <span style=''>    * Default: &quot;kmeans++&quot;.
+</span>88 <span style=''>    */
+</span>89 <span style=''>  val localInitMethod : Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;local_lloyd_init_method&quot;,
+</span>90 <span style=''></span><span style='background: #AEF1AE'>    &quot;The local initialization algorithm to choose centroids. Supported options: 'random' and &quot; +
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      &quot;'kmeans++'&quot;, ParamValidators.inArray(Array(&quot;random&quot;, &quot;kmeans++&quot;)))</span><span style=''>
+</span>92 <span style=''>  def getLocalInitMethod: String = </span><span style='background: #AEF1AE'>$(localInitMethod)</span><span style=''>
+</span>93 <span style=''>
+</span>94 <span style=''>  /**
+</span>95 <span style=''>    * The weight decaying rate of each point. 0 means no decay at all. Must be &gt;= 0.
+</span>96 <span style=''>    * Default: 0.
+</span>97 <span style=''>    */
+</span>98 <span style=''>  val halflifeTime : IntParam = </span><span style='background: #AEF1AE'>new IntParam(this, &quot;half_life_time_size&quot;,
+</span>99 <span style=''></span><span style='background: #AEF1AE'>    &quot;The weight decaying rate of each point. Must be &gt;= 0.&quot;,
+</span>100 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.gtEq(0))</span><span style=''>
+</span>101 <span style=''>  def getHalflifeTime: Int = </span><span style='background: #AEF1AE'>$(halflifeTime)</span><span style=''>
+</span>102 <span style=''>
+</span>103 <span style=''>  /**
+</span>104 <span style=''>    * The number of passes done over the training data. Must be &gt; 0.
+</span>105 <span style=''>    * Default: 1.
+</span>106 <span style=''>    */
+</span>107 <span style=''>  val epochs : IntParam = </span><span style='background: #AEF1AE'>new IntParam(this, &quot;epochs&quot;,
+</span>108 <span style=''></span><span style='background: #AEF1AE'>    &quot;The number of passes done over the training data. Must be &gt; 0.&quot;,
+</span>109 <span style=''></span><span style='background: #AEF1AE'>    ParamValidators.gtEq(1))</span><span style=''>
+</span>110 <span style=''>  def getEpochs: Int = </span><span style='background: #AEF1AE'>$(epochs)</span><span style=''>
+</span>111 <span style=''>
+</span>112 <span style=''>  /**
+</span>113 <span style=''>    * The factor of extra centroids to create. The number of initial centroids equals
+</span>114 <span style=''>    * centerFactor * k. Must be &gt; 0 or &quot;auto&quot;.
+</span>115 <span style=''>    * Default: &quot;auto&quot;.
+</span>116 <span style=''>    */
+</span>117 <span style=''>  val centerFactor : Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;extra_center_factor&quot;,
+</span>118 <span style=''></span><span style='background: #AEF1AE'>    &quot;The factor of extra centroids to create. Must be &gt; 0 or 'auto'&quot;,
+</span>119 <span style=''></span><span style='background: #AEF1AE'>    autoOrAboveParamValidator(0, false))</span><span style=''>
+</span>120 <span style=''>  def getCenterFactor: String = </span><span style='background: #AEF1AE'>$(centerFactor)</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>  /** Metric to be used for scoring the model. String of comma separated metrics.
+</span>123 <span style=''>    * Support metrics are &quot;msd&quot; and &quot;ssd&quot;.
+</span>124 <span style=''>    * &quot;msd&quot; Means Square Error, &quot;ssd&quot;: Sum of square distance
+</span>125 <span style=''>    * Default = &quot;msd&quot;
+</span>126 <span style=''>    */
+</span>127 <span style=''>  val evalMetrics: Param[String] = </span><span style='background: #AEF1AE'>new Param(this, &quot;eval_metrics&quot;,
+</span>128 <span style=''></span><span style='background: #AEF1AE'>    &quot;Metric to be used for scoring the model. String of comma separated metrics. &quot; +
+</span>129 <span style=''></span><span style='background: #AEF1AE'>      &quot;Support metrics are 'msd' and 'ssd'.&quot; +
+</span>130 <span style=''></span><span style='background: #AEF1AE'>      &quot;'msd' Means Square Error, 'ssd': Sum of square distance&quot; +
+</span>131 <span style=''></span><span style='background: #AEF1AE'>      &quot;is usually set automatically, depending on some other parameters&quot;, evalMetricsValidator)</span><span style=''>
+</span>132 <span style=''>  def getEvalMetrics: String = </span><span style='background: #AEF1AE'>$(evalMetrics).stripPrefix(&quot;[&quot;).stripSuffix(&quot;]&quot;)</span><span style=''>
+</span>133 <span style=''>
+</span>134 <span style=''>  private def evalMetricsValidator: String =&gt; Boolean = {
+</span>135 <span style=''>    (value: String) =&gt; </span><span style='background: #AEF1AE'>value.stripPrefix(&quot;[&quot;).stripSuffix(&quot;]&quot;).split(&quot;,&quot;)
+</span>136 <span style=''></span><span style='background: #AEF1AE'>      .map(metric =&gt; evalMetricsValues.contains(metric.trim)).reduce(_ &amp;&amp; _)</span><span style=''>
+</span>137 <span style=''>  }
+</span>138 <span style=''>
+</span>139 <span style=''>  private val evalMetricsValues = </span><span style='background: #AEF1AE'>Array(&quot;msd&quot;, &quot;ssd&quot;)</span><span style=''>
+</span>140 <span style=''>}
+</span>141 <span style=''>
+</span>142 <span style=''>object KMeansSageMakerEstimator {
+</span>143 <span style=''>  val algorithmName = </span><span style='background: #AEF1AE'>&quot;kmeans&quot;</span><span style=''>
+</span>144 <span style=''>  val algorithmTag = </span><span style='background: #AEF1AE'>&quot;1&quot;</span><span style=''>
+</span>145 <span style=''>  val regionAccountMap = </span><span style='background: #AEF1AE'>SagerMakerRegionAccountMaps.AlgorithmsAccountMap</span><span style=''>
+</span>146 <span style=''>}
+</span>147 <span style=''>
+</span>148 <span style=''>/**
+</span>149 <span style=''>  * A [[SageMakerEstimator]] that runs a K-Means Clustering training job on Amazon SageMaker upon a
+</span>150 <span style=''>  * call to fit() on a DataFrame and returns a [[SageMakerModel]]
+</span>151 <span style=''>  * that can be used to transform a DataFrame using the hosted K-Means model. K-Means Clustering
+</span>152 <span style=''>  * is useful for grouping similar examples in your dataset.
+</span>153 <span style=''>  *
+</span>154 <span style=''>  * Amazon SageMaker K-Means clustering trains on RecordIO-encoded Amazon Record protobuf data.
+</span>155 <span style=''>  * SageMaker Spark writes a DataFrame to S3 by selecting a column of Vectors named &quot;features&quot;
+</span>156 <span style=''>  * and, if present, a column of Doubles named &quot;label&quot;. These names are configurable by passing
+</span>157 <span style=''>  * a map with entries in trainingSparkDataFormatOptions with key &quot;labelColumnName&quot; or
+</span>158 <span style=''>  * &quot;featuresColumnName&quot;, with values corresponding to the desired label and features columns.
+</span>159 <span style=''>  *
+</span>160 <span style=''>  * For inference, the SageMakerModel returned by fit() by the KMeansSageMakerEstimator
+</span>161 <span style=''>  * uses [[ProtobufRequestRowSerializer]] to serialize Rows into
+</span>162 <span style=''>  * RecordIO-encoded Amazon Record protobuf messages for inference, by default selecting
+</span>163 <span style=''>  * the column named &quot;features&quot; expected to contain a Vector of Doubles.
+</span>164 <span style=''>  *
+</span>165 <span style=''>  * Inferences made against an Endpoint hosting a K-Means model contain
+</span>166 <span style=''>  * a &quot;closest_cluster&quot; field and a &quot;distance_to_cluster&quot; field, both
+</span>167 <span style=''>  * appended to the input DataFrame as columns of Double.
+</span>168 <span style=''>  *
+</span>169 <span style=''>  * @param sagemakerRole The SageMaker TrainingJob and Hosting IAM Role. Used by a SageMaker to
+</span>170 <span style=''>  *                      access S3 and ECR resources. SageMaker hosted Endpoints instances
+</span>171 <span style=''>  *                      launched by this Estimator run with this role.
+</span>172 <span style=''>  * @param trainingInstanceType The SageMaker TrainingJob Instance Type to use
+</span>173 <span style=''>  * @param trainingInstanceCount The number of instances of instanceType to run an
+</span>174 <span style=''>  *                              SageMaker Training Job with
+</span>175 <span style=''>  * @param endpointInstanceType The SageMaker Endpoint Confing instance type
+</span>176 <span style=''>  * @param endpointInitialInstanceCount The SageMaker Endpoint Config minimum number of instances
+</span>177 <span style=''>  *                                     that can be used to host modelImage
+</span>178 <span style=''>  * @param requestRowSerializer Serializes Spark DataFrame [[Row]]s for transformation by Models
+</span>179 <span style=''>  *                             built from this Estimator.
+</span>180 <span style=''>  * @param responseRowDeserializer Deserializes an Endpoint response into a series of [[Row]]s.
+</span>181 <span style=''>  * @param trainingInputS3DataPath An S3 location to upload SageMaker Training Job input data to.
+</span>182 <span style=''>  * @param trainingOutputS3DataPath An S3 location for SageMaker to store Training Job output
+</span>183 <span style=''>  *                                 data to.
+</span>184 <span style=''>  * @param trainingInstanceVolumeSizeInGB The EBS volume size in gigabytes of each instance.
+</span>185 <span style=''>  * @param trainingProjectedColumns The columns to project from the Dataset being fit before
+</span>186 <span style=''>  *                                 training. If an Optional.empty is passed then no specific
+</span>187 <span style=''>  *                                 projection will occur and all columns will be serialized.
+</span>188 <span style=''>  * @param trainingChannelName The SageMaker Channel name to input serialized Dataset fit input to
+</span>189 <span style=''>  * @param trainingContentType The MIME type of the training data.
+</span>190 <span style=''>  * @param trainingS3DataDistribution The SageMaker Training Job S3 data distribution scheme.
+</span>191 <span style=''>  * @param trainingSparkDataFormat The Spark Data Format name used to serialize the Dataset being
+</span>192 <span style=''>  *                                fit for input to SageMaker.
+</span>193 <span style=''>  * @param trainingSparkDataFormatOptions The Spark Data Format Options used during serialization of
+</span>194 <span style=''>  *                                       the Dataset being fit.
+</span>195 <span style=''>  * @param trainingInputMode The SageMaker Training Job Channel input mode.
+</span>196 <span style=''>  * @param trainingCompressionCodec The type of compression to use when serializing the Dataset
+</span>197 <span style=''>  *                                 being fit for input to SageMaker.
+</span>198 <span style=''>  * @param trainingMaxRuntimeInSeconds A SageMaker Training Job Termination Condition
+</span>199 <span style=''>  *                                    MaxRuntimeInHours.
+</span>200 <span style=''>  * @param trainingKmsKeyId A KMS key ID for the Output Data Source
+</span>201 <span style=''>  * @param modelEnvironmentVariables The environment variables that SageMaker will set on the model
+</span>202 <span style=''>  *                                  container during execution.
+</span>203 <span style=''>  * @param endpointCreationPolicy Defines how a SageMaker Endpoint referenced by a
+</span>204 <span style=''>  *                               SageMakerModel is created.
+</span>205 <span style=''>  * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>206 <span style=''>  *                        and CreateEndpoint requests.
+</span>207 <span style=''>  * @param region The region in which to run the algorithm. If not specified, gets the region from
+</span>208 <span style=''>  *               the DefaultAwsRegionProviderChain.
+</span>209 <span style=''>  * @param s3Client AmazonS3. Used to create a bucket for staging SageMaker Training Job input
+</span>210 <span style=''>  *                 and/or output if either are set to S3AutoCreatePath.
+</span>211 <span style=''>  * @param stsClient AmazonSTS. Used to resolve the account number when creating staging
+</span>212 <span style=''>  *                  input / output buckets.
+</span>213 <span style=''>  * @param modelPrependInputRowsToTransformationRows Whether the transformation result on Models
+</span>214 <span style=''>  *        built by this Estimator should also include the input Rows. If true, each output Row
+</span>215 <span style=''>  *        is formed by a concatenation of the input Row with the corresponding Row produced by
+</span>216 <span style=''>  *        SageMaker Endpoint invocation, produced by responseRowDeserializer.
+</span>217 <span style=''>  *        If false, each output Row is just taken from responseRowDeserializer.
+</span>218 <span style=''>  * @param deleteStagingDataAfterTraining Whether to remove the training data on s3 after training
+</span>219 <span style=''>  *                                       is complete or failed.
+</span>220 <span style=''>  * @param namePolicyFactory The [[NamePolicyFactory]] to use when naming SageMaker entities
+</span>221 <span style=''>  *        created during fit
+</span>222 <span style=''>  * @param uid The unique identifier of this Estimator. Used to represent this stage in Spark
+</span>223 <span style=''>  *            ML pipelines.
+</span>224 <span style=''>  */
+</span>225 <span style=''>class KMeansSageMakerEstimator(
+</span>226 <span style=''>      override val sagemakerRole : IAMRoleResource = IAMRoleFromConfig(),
+</span>227 <span style=''>      override val trainingInstanceType : String,
+</span>228 <span style=''>      override val trainingInstanceCount : Int,
+</span>229 <span style=''>      override val endpointInstanceType : String,
+</span>230 <span style=''>      override val endpointInitialInstanceCount : Int,
+</span>231 <span style=''>      override val requestRowSerializer : RequestRowSerializer =
+</span>232 <span style=''>        new ProtobufRequestRowSerializer(),
+</span>233 <span style=''>      override val responseRowDeserializer : ResponseRowDeserializer =
+</span>234 <span style=''>        new KMeansProtobufResponseRowDeserializer(),
+</span>235 <span style=''>      override val trainingInputS3DataPath : S3Resource = S3AutoCreatePath(),
+</span>236 <span style=''>      override val trainingOutputS3DataPath : S3Resource = S3AutoCreatePath(),
+</span>237 <span style=''>      override val trainingInstanceVolumeSizeInGB : Int = 1024,
+</span>238 <span style=''>      override val trainingProjectedColumns : Option[List[String]] = None,
+</span>239 <span style=''>      override val trainingChannelName : String = &quot;train&quot;,
+</span>240 <span style=''>      override val trainingContentType: Option[String] = None,
+</span>241 <span style=''>      override val trainingS3DataDistribution : String = S3DataDistribution.ShardedByS3Key.toString,
+</span>242 <span style=''>      override val trainingSparkDataFormat : String = &quot;sagemaker&quot;,
+</span>243 <span style=''>      override val trainingSparkDataFormatOptions : Map[String, String] = Map(),
+</span>244 <span style=''>      override val trainingInputMode : String = TrainingInputMode.File.toString,
+</span>245 <span style=''>      override val trainingCompressionCodec : Option[String] = None,
+</span>246 <span style=''>      override val trainingMaxRuntimeInSeconds : Int = 24 * 60 * 60,
+</span>247 <span style=''>      override val trainingKmsKeyId : Option[String] = None,
+</span>248 <span style=''>      override val modelEnvironmentVariables : Map[String, String] = Map(),
+</span>249 <span style=''>      override val endpointCreationPolicy : EndpointCreationPolicy =
+</span>250 <span style=''>        EndpointCreationPolicy.CREATE_ON_CONSTRUCT,
+</span>251 <span style=''>      override val sagemakerClient : AmazonSageMaker
+</span>252 <span style=''>        = AmazonSageMakerClientBuilder.defaultClient,
+</span>253 <span style=''>      val region : Option[String] = None,
+</span>254 <span style=''>      override val s3Client : AmazonS3 = AmazonS3ClientBuilder.defaultClient(),
+</span>255 <span style=''>      override val stsClient : AWSSecurityTokenService =
+</span>256 <span style=''>        AWSSecurityTokenServiceClientBuilder.defaultClient(),
+</span>257 <span style=''>      override val modelPrependInputRowsToTransformationRows : Boolean = true,
+</span>258 <span style=''>      override val deleteStagingDataAfterTraining : Boolean = true,
+</span>259 <span style=''>      override val namePolicyFactory : NamePolicyFactory = new RandomNamePolicyFactory(),
+</span>260 <span style=''>      override val uid : String = Identifiable.randomUID(&quot;sagemaker&quot;))
+</span>261 <span style=''>  extends SageMakerEstimator(
+</span>262 <span style=''>    trainingImage = SageMakerImageURIProvider.getImage(
+</span>263 <span style=''>      region.getOrElse(new DefaultAwsRegionProviderChain().getRegion),
+</span>264 <span style=''>      KMeansSageMakerEstimator.regionAccountMap,
+</span>265 <span style=''>      KMeansSageMakerEstimator.algorithmName, KMeansSageMakerEstimator.algorithmTag),
+</span>266 <span style=''>    modelImage = SageMakerImageURIProvider.getImage(
+</span>267 <span style=''>      region.getOrElse(new DefaultAwsRegionProviderChain().getRegion),
+</span>268 <span style=''>      KMeansSageMakerEstimator.regionAccountMap,
+</span>269 <span style=''>      KMeansSageMakerEstimator.algorithmName, KMeansSageMakerEstimator.algorithmTag),
+</span>270 <span style=''>    sagemakerRole,
+</span>271 <span style=''>    trainingInstanceType,
+</span>272 <span style=''>    trainingInstanceCount,
+</span>273 <span style=''>    endpointInstanceType,
+</span>274 <span style=''>    endpointInitialInstanceCount,
+</span>275 <span style=''>    requestRowSerializer,
+</span>276 <span style=''>    responseRowDeserializer,
+</span>277 <span style=''>    trainingInputS3DataPath,
+</span>278 <span style=''>    trainingOutputS3DataPath,
+</span>279 <span style=''>    trainingInstanceVolumeSizeInGB,
+</span>280 <span style=''>    trainingProjectedColumns,
+</span>281 <span style=''>    trainingChannelName,
+</span>282 <span style=''>    trainingContentType,
+</span>283 <span style=''>    trainingS3DataDistribution,
+</span>284 <span style=''>    trainingSparkDataFormat,
+</span>285 <span style=''>    trainingSparkDataFormatOptions,
+</span>286 <span style=''>    trainingInputMode,
+</span>287 <span style=''>    trainingCompressionCodec,
+</span>288 <span style=''>    trainingMaxRuntimeInSeconds,
+</span>289 <span style=''>    trainingKmsKeyId,
+</span>290 <span style=''>    modelEnvironmentVariables,
+</span>291 <span style=''>    endpointCreationPolicy,
+</span>292 <span style=''>    sagemakerClient,
+</span>293 <span style=''>    s3Client,
+</span>294 <span style=''>    stsClient,
+</span>295 <span style=''>    modelPrependInputRowsToTransformationRows,
+</span>296 <span style=''>    deleteStagingDataAfterTraining,
+</span>297 <span style=''>    namePolicyFactory,
+</span>298 <span style=''>    uid) with KMeansParams {
+</span>299 <span style=''>
+</span>300 <span style=''>  </span><span style='background: #AEF1AE'>setDefault(miniBatchSize -&gt; 5000)</span><span style=''>
+</span>301 <span style=''>
+</span>302 <span style=''>  def setK(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(k, value)</span><span style=''>
+</span>303 <span style=''>
+</span>304 <span style=''>  def setFeatureDim(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(featureDim, value)</span><span style=''>
+</span>305 <span style=''>
+</span>306 <span style=''>  def setMiniBatchSize(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(miniBatchSize, value)</span><span style=''>
+</span>307 <span style=''>
+</span>308 <span style=''>  def setMaxIter(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(maxIter, value)</span><span style=''>
+</span>309 <span style=''>
+</span>310 <span style=''>  def setTol(value : Double) : this.type = </span><span style='background: #AEF1AE'>set(tol, value)</span><span style=''>
+</span>311 <span style=''>
+</span>312 <span style=''>  def setLocalInitMethod(value : String) : this.type = </span><span style='background: #AEF1AE'>set(localInitMethod, value)</span><span style=''>
+</span>313 <span style=''>
+</span>314 <span style=''>  def setHalflifeTime(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(halflifeTime, value)</span><span style=''>
+</span>315 <span style=''>
+</span>316 <span style=''>  def setEpochs(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(epochs, value)</span><span style=''>
+</span>317 <span style=''>
+</span>318 <span style=''>  def setInitMethod(value : String) : this.type = </span><span style='background: #AEF1AE'>set(initMethod, value)</span><span style=''>
+</span>319 <span style=''>
+</span>320 <span style=''>  def setCenterFactor(value : String) : this.type = </span><span style='background: #AEF1AE'>set(centerFactor, value)</span><span style=''>
+</span>321 <span style=''>
+</span>322 <span style=''>  def setCenterFactor(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(centerFactor, value.toString)</span><span style=''>
+</span>323 <span style=''>
+</span>324 <span style=''>  def setTrialNum(value : String) : this.type = </span><span style='background: #AEF1AE'>set(trialNum, value)</span><span style=''>
+</span>325 <span style=''>
+</span>326 <span style=''>  def setTrialNum(value : Int) : this.type = </span><span style='background: #AEF1AE'>set(trialNum, value.toString)</span><span style=''>
+</span>327 <span style=''>
+</span>328 <span style=''>  def setEvalMetrics(value : String) : this.type = </span><span style='background: #AEF1AE'>set(evalMetrics, &quot;[&quot; + value + &quot;]&quot;)</span><span style=''>
+</span>329 <span style=''>
+</span>330 <span style=''>  // Check whether required hyper-parameters are set
+</span>331 <span style=''>  override def transformSchema(schema: StructType): StructType = {
+</span>332 <span style=''>    </span><span style='background: #F0ADAD'>$(featureDim)</span><span style=''>
+</span>333 <span style=''>    </span><span style='background: #F0ADAD'>$(k)</span><span style=''>
+</span>334 <span style=''>    </span><span style='background: #F0ADAD'>$(miniBatchSize)</span><span style=''>
+</span>335 <span style=''>    </span><span style='background: #F0ADAD'>super.transformSchema(schema)</span><span style=''>
+</span>336 <span style=''>  }
+</span>337 <span style=''>
+</span>338 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          1957
+          -
+          2014
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The number of clusters to create. Must be &gt; 1.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          1952
+          -
+          1955
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;k&quot;
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          1933
+          -
+          2040
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.IntParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.IntParam(this, &quot;k&quot;, &quot;The number of clusters to create. Must be &gt; 1.&quot;, org.apache.spark.ml.param.ParamValidators.gtEq[Any](2.0))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          2016
+          -
+          2039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.gtEq
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.gtEq[Any](2.0)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          2061
+          -
+          2062
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.k
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.k
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          2059
+          -
+          2063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[Int](KMeansParams.this.k)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          2242
+          -
+          2255
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;init_method&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          614
+        </td>
+        <td>
+          2226
+          -
+          2415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;init_method&quot;, &quot;The initialization algorithm to choose centroids. Supported options: \'random\' and \'kmeans++\'.&quot;, org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;random&quot;, &quot;kmeans++&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          2261
+          -
+          2356
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The initialization algorithm to choose centroids. Supported options: \'random\' and \'kmeans++\'.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          612
+        </td>
+        <td>
+          2386
+          -
+          2413
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;random&quot;, &quot;kmeans++&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          611
+        </td>
+        <td>
+          2402
+          -
+          2412
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;kmeans++&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          613
+        </td>
+        <td>
+          2362
+          -
+          2414
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.inArray
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;random&quot;, &quot;kmeans++&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          2392
+          -
+          2400
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;random&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          615
+        </td>
+        <td>
+          2448
+          -
+          2458
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.initMethod
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.initMethod
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          616
+        </td>
+        <td>
+          2446
+          -
+          2459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[String](KMeansParams.this.initMethod)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          617
+        </td>
+        <td>
+          2653
+          -
+          2675
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;local_lloyd_max_iter&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          620
+        </td>
+        <td>
+          2634
+          -
+          2816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.IntParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.IntParam(this, &quot;local_lloyd_max_iter&quot;, &quot;Maximum iterations for Lloyds EM procedurein the local kmeans used in finalized stage. Must be &gt; 0&quot;, org.apache.spark.ml.param.ParamValidators.gtEq[Any](1.0))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          618
+        </td>
+        <td>
+          2681
+          -
+          2790
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Maximum iterations for Lloyds EM procedurein the local kmeans used in finalized stage. Must be &gt; 0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          619
+        </td>
+        <td>
+          2792
+          -
+          2815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.gtEq
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.gtEq[Any](1.0)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          621
+        </td>
+        <td>
+          2843
+          -
+          2850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.maxIter
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.maxIter
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          622
+        </td>
+        <td>
+          2841
+          -
+          2851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[Int](KMeansParams.this.maxIter)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          623
+        </td>
+        <td>
+          3032
+          -
+          3049
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;local_lloyd_tol&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          3010
+          -
+          3185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.DoubleParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.DoubleParam(this, &quot;local_lloyd_tol&quot;, &quot;Tolerance for change in ssd for early stopping in local kmeans. Must be in range [0, 1].&quot;, org.apache.spark.ml.param.ParamValidators.inRange[Any](0.0, 1.0))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          3055
+          -
+          3145
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Tolerance for change in ssd for early stopping in local kmeans. Must be in range [0, 1].&quot;
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          625
+        </td>
+        <td>
+          3151
+          -
+          3184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.inRange
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.inRange[Any](0.0, 1.0)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          3211
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.tol
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.tol
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          628
+        </td>
+        <td>
+          3209
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[Double](KMeansParams.this.tol)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          3415
+          -
+          3579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;local_lloyd_num_trials&quot;, &quot;The number of trials of the local kmeans algorithm. Must be &gt; 0 or \'auto\'.&quot;, KMeansParams.this.autoOrAboveParamValidator(0.0, false))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          629
+        </td>
+        <td>
+          3431
+          -
+          3455
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;local_lloyd_num_trials&quot;
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          630
+        </td>
+        <td>
+          3461
+          -
+          3537
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The number of trials of the local kmeans algorithm. Must be &gt; 0 or \'auto\'.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          3543
+          -
+          3578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.autoOrAboveParamValidator
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.autoOrAboveParamValidator(0.0, false)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          3610
+          -
+          3618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.trialNum
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.trialNum
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          634
+        </td>
+        <td>
+          3608
+          -
+          3619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[String](KMeansParams.this.trialNum)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          641
+        </td>
+        <td>
+          3795
+          -
+          4008
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;local_lloyd_init_method&quot;, &quot;The local initialization algorithm to choose centroids. Supported options: \'random\' and \'kmeans++\'&quot;, org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;random&quot;, &quot;kmeans++&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          3811
+          -
+          3836
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;local_lloyd_init_method&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          636
+        </td>
+        <td>
+          3842
+          -
+          3953
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The local initialization algorithm to choose centroids. Supported options: \'random\' and \'kmeans++\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          3979
+          -
+          4006
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;random&quot;, &quot;kmeans++&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          3995
+          -
+          4005
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;kmeans++&quot;
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          3955
+          -
+          4007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.inArray
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.inArray[String](scala.Array.apply[String](&quot;random&quot;, &quot;kmeans++&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          3985
+          -
+          3993
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;random&quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          4046
+          -
+          4061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.localInitMethod
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.localInitMethod
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          4044
+          -
+          4062
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[String](KMeansParams.this.localInitMethod)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          644
+        </td>
+        <td>
+          4231
+          -
+          4252
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;half_life_time_size&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          4212
+          -
+          4343
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.IntParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.IntParam(this, &quot;half_life_time_size&quot;, &quot;The weight decaying rate of each point. Must be &gt;= 0.&quot;, org.apache.spark.ml.param.ParamValidators.gtEq[Any](0.0))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          4258
+          -
+          4313
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The weight decaying rate of each point. Must be &gt;= 0.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          4319
+          -
+          4342
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.gtEq
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.gtEq[Any](0.0)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          648
+        </td>
+        <td>
+          4375
+          -
+          4387
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.halflifeTime
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.halflifeTime
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          4373
+          -
+          4388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[Int](KMeansParams.this.halflifeTime)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          650
+        </td>
+        <td>
+          4535
+          -
+          4543
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;epochs&quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          653
+        </td>
+        <td>
+          4516
+          -
+          4643
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.IntParam.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.IntParam(this, &quot;epochs&quot;, &quot;The number of passes done over the training data. Must be &gt; 0.&quot;, org.apache.spark.ml.param.ParamValidators.gtEq[Any](1.0))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          4549
+          -
+          4613
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The number of passes done over the training data. Must be &gt; 0.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          4619
+          -
+          4642
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.ParamValidators.gtEq
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.param.ParamValidators.gtEq[Any](1.0)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          4669
+          -
+          4675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.epochs
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.epochs
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          655
+        </td>
+        <td>
+          4667
+          -
+          4676
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[Int](KMeansParams.this.epochs)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          4884
+          -
+          5033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;extra_center_factor&quot;, &quot;The factor of extra centroids to create. Must be &gt; 0 or \'auto\'&quot;, KMeansParams.this.autoOrAboveParamValidator(0.0, false))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          4900
+          -
+          4921
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;extra_center_factor&quot;
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          657
+        </td>
+        <td>
+          4927
+          -
+          4991
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The factor of extra centroids to create. Must be &gt; 0 or \'auto\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          4997
+          -
+          5032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.autoOrAboveParamValidator
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.autoOrAboveParamValidator(0.0, false)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          5068
+          -
+          5080
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.centerFactor
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.centerFactor
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          5066
+          -
+          5081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.$[String](KMeansParams.this.centerFactor)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          5350
+          -
+          5364
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;eval_metrics&quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          5334
+          -
+          5659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.param.Param[String](this, &quot;eval_metrics&quot;, &quot;Metric to be used for scoring the model. String of comma separated metrics. Support metrics are \'msd\' and \'ssd\'.\'msd\' Means Square Error, \'ssd\': Sum of square distanceis usually set automatically, depending on some other parameters&quot;, KMeansParams.this.evalMetricsValidator)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          663
+        </td>
+        <td>
+          5370
+          -
+          5636
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Metric to be used for scoring the model. String of comma separated metrics. Support metrics are \'msd\' and \'ssd\'.\'msd\' Means Square Error, \'ssd\': Sum of square distanceis usually set automatically, depending on some other parameters&quot;
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          5638
+          -
+          5658
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.evalMetricsValidator
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.evalMetricsValidator
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          5691
+          -
+          5739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripSuffix
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(scala.this.Predef.augmentString(KMeansParams.this.$[String](KMeansParams.this.evalMetrics)).stripPrefix(&quot;[&quot;)).stripSuffix(&quot;]&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          667
+        </td>
+        <td>
+          5822
+          -
+          5872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(scala.this.Predef.augmentString(value).stripPrefix(&quot;[&quot;)).stripSuffix(&quot;]&quot;).split(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          5921
+          -
+          5932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.trim
+        </td>
+        <td style="background: #AEF1AE">
+          metric.trim()
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          5822
+          -
+          5934
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[String](scala.this.Predef.augmentString(scala.this.Predef.augmentString(value).stripPrefix(&quot;[&quot;)).stripSuffix(&quot;]&quot;).split(&quot;,&quot;)).map[Boolean, Array[Boolean]](((metric: String) =&gt; scala.this.Predef.refArrayOps[String](KMeansParams.this.evalMetricsValues).contains[String](metric.trim())))(scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean])))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          5894
+          -
+          5911
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.evalMetricsValues
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansParams.this.evalMetricsValues
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          5883
+          -
+          5883
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          674
+        </td>
+        <td>
+          5822
+          -
+          5949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.reduce
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.booleanArrayOps(scala.this.Predef.refArrayOps[String](scala.this.Predef.augmentString(scala.this.Predef.augmentString(value).stripPrefix(&quot;[&quot;)).stripSuffix(&quot;]&quot;).split(&quot;,&quot;)).map[Boolean, Array[Boolean]](((metric: String) =&gt; scala.this.Predef.refArrayOps[String](KMeansParams.this.evalMetricsValues).contains[String](metric.trim())))(scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean])))).reduce[Boolean](((x$1: Boolean, x$2: Boolean) =&gt; x$1.&amp;&amp;(x$2)))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          5942
+          -
+          5948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.&amp;&amp;(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          670
+        </td>
+        <td>
+          5894
+          -
+          5933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.contains
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[String](KMeansParams.this.evalMetricsValues).contains[String](metric.trim())
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          5995
+          -
+          6000
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;msd&quot;
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          677
+        </td>
+        <td>
+          5989
+          -
+          6008
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;msd&quot;, &quot;ssd&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          676
+        </td>
+        <td>
+          6002
+          -
+          6007
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ssd&quot;
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          678
+        </td>
+        <td>
+          6068
+          -
+          6076
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;kmeans&quot;
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          679
+        </td>
+        <td>
+          6098
+          -
+          6101
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          680
+        </td>
+        <td>
+          6127
+          -
+          6175
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SagerMakerRegionAccountMaps.AlgorithmsAccountMap
+        </td>
+        <td style="background: #AEF1AE">
+          SagerMakerRegionAccountMaps.AlgorithmsAccountMap
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          681
+        </td>
+        <td>
+          15642
+          -
+          15663
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.miniBatchSize.-&gt;(5000)
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          682
+        </td>
+        <td>
+          15631
+          -
+          15664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.setDefault
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.setDefault(KMeansSageMakerEstimator.this.miniBatchSize.-&gt;(5000))
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          15704
+          -
+          15717
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Int](KMeansSageMakerEstimator.this.k, value)
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          15708
+          -
+          15709
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.k
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.k
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          15766
+          -
+          15788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Int](KMeansSageMakerEstimator.this.featureDim, value)
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          685
+        </td>
+        <td>
+          15770
+          -
+          15780
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.featureDim
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.featureDim
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          15844
+          -
+          15857
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.miniBatchSize
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.miniBatchSize
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          15840
+          -
+          15865
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Int](KMeansSageMakerEstimator.this.miniBatchSize, value)
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          690
+        </td>
+        <td>
+          15911
+          -
+          15930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Int](KMeansSageMakerEstimator.this.maxIter, value)
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          15915
+          -
+          15922
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.maxIter
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.maxIter
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          15975
+          -
+          15990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Double](KMeansSageMakerEstimator.this.tol, value)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          15979
+          -
+          15982
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.tol
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.tol
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          16051
+          -
+          16066
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.localInitMethod
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.localInitMethod
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          16047
+          -
+          16074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.localInitMethod, value)
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          16125
+          -
+          16149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Int](KMeansSageMakerEstimator.this.halflifeTime, value)
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          695
+        </td>
+        <td>
+          16129
+          -
+          16141
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.halflifeTime
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.halflifeTime
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          16194
+          -
+          16212
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[Int](KMeansSageMakerEstimator.this.epochs, value)
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          16198
+          -
+          16204
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.epochs
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.epochs
+        </td>
+      </tr><tr>
+        <td>
+          318
+        </td>
+        <td>
+          699
+        </td>
+        <td>
+          16268
+          -
+          16278
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.initMethod
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.initMethod
+        </td>
+      </tr><tr>
+        <td>
+          318
+        </td>
+        <td>
+          700
+        </td>
+        <td>
+          16264
+          -
+          16286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.initMethod, value)
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          702
+        </td>
+        <td>
+          16340
+          -
+          16364
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.centerFactor, value)
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          701
+        </td>
+        <td>
+          16344
+          -
+          16356
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.centerFactor
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.centerFactor
+        </td>
+      </tr><tr>
+        <td>
+          322
+        </td>
+        <td>
+          705
+        </td>
+        <td>
+          16415
+          -
+          16448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.centerFactor, value.toString())
+        </td>
+      </tr><tr>
+        <td>
+          322
+        </td>
+        <td>
+          704
+        </td>
+        <td>
+          16433
+          -
+          16447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #AEF1AE">
+          value.toString()
+        </td>
+      </tr><tr>
+        <td>
+          322
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          16419
+          -
+          16431
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.centerFactor
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.centerFactor
+        </td>
+      </tr><tr>
+        <td>
+          324
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          16498
+          -
+          16518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.trialNum, value)
+        </td>
+      </tr><tr>
+        <td>
+          324
+        </td>
+        <td>
+          706
+        </td>
+        <td>
+          16502
+          -
+          16510
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.trialNum
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.trialNum
+        </td>
+      </tr><tr>
+        <td>
+          326
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          16569
+          -
+          16577
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.trialNum
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.trialNum
+        </td>
+      </tr><tr>
+        <td>
+          326
+        </td>
+        <td>
+          710
+        </td>
+        <td>
+          16565
+          -
+          16594
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.trialNum, value.toString())
+        </td>
+      </tr><tr>
+        <td>
+          326
+        </td>
+        <td>
+          709
+        </td>
+        <td>
+          16579
+          -
+          16593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #AEF1AE">
+          value.toString()
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          16651
+          -
+          16662
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.evalMetrics
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.evalMetrics
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          713
+        </td>
+        <td>
+          16647
+          -
+          16682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.set
+        </td>
+        <td style="background: #AEF1AE">
+          KMeansSageMakerEstimator.this.set[String](KMeansSageMakerEstimator.this.evalMetrics, &quot;[&quot;.+(value).+(&quot;]&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          712
+        </td>
+        <td>
+          16664
+          -
+          16681
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;[&quot;.+(value).+(&quot;]&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          714
+        </td>
+        <td>
+          16810
+          -
+          16820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.featureDim
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.this.featureDim
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          16808
+          -
+          16821
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.this.$[Int](KMeansSageMakerEstimator.this.featureDim)
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          16826
+          -
+          16830
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.this.$[Int](KMeansSageMakerEstimator.this.k)
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          716
+        </td>
+        <td>
+          16828
+          -
+          16829
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.KMeansParams.k
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.this.k
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          719
+        </td>
+        <td>
+          16835
+          -
+          16851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.$
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.this.$[Int](KMeansSageMakerEstimator.this.miniBatchSize)
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          718
+        </td>
+        <td>
+          16837
+          -
+          16850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.algorithms.SageMakerAlgorithmParams.miniBatchSize
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.this.miniBatchSize
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          720
+        </td>
+        <td>
+          16856
+          -
+          16885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.transformSchema
+        </td>
+        <td style="background: #F0ADAD">
+          KMeansSageMakerEstimator.super.transformSchema(schema)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

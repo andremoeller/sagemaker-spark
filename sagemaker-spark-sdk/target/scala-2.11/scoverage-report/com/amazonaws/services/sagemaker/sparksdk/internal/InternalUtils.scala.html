@@ -1,0 +1,395 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/internal/InternalUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.internal
+</span>17 <span style=''>
+</span>18 <span style=''>import com.amazonaws.AmazonWebServiceRequest
+</span>19 <span style=''>
+</span>20 <span style=''>private[sparksdk] object InternalUtils  {
+</span>21 <span style=''>
+</span>22 <span style=''>  val PACKAGE_VERSION = </span><span style='background: #AEF1AE'>getClass.getPackage.getImplementationVersion</span><span style=''>
+</span>23 <span style=''>  val SCALA_VERSION = </span><span style='background: #AEF1AE'>util.Properties.versionNumberString</span><span style=''>
+</span>24 <span style=''>  val OS_NAME = </span><span style='background: #AEF1AE'>System.getProperty(&quot;os.name&quot;)</span><span style=''>
+</span>25 <span style=''>  val OS_VERSION = </span><span style='background: #AEF1AE'>System.getProperty(&quot;os.version&quot;)</span><span style=''>
+</span>26 <span style=''>  val USER_AGENT = </span><span style='background: #AEF1AE'>&quot;AWS-SageMaker-Spark-SDK/&quot; + PACKAGE_VERSION +
+</span>27 <span style=''></span><span style='background: #AEF1AE'>    &quot; scala/&quot; + SCALA_VERSION + &quot; &quot; + OS_NAME + &quot;/&quot; + OS_VERSION</span><span style=''>
+</span>28 <span style=''>
+</span>29 <span style=''>  /**
+</span>30 <span style=''>    * Appends custom user-agent string.
+</span>31 <span style=''>    * @param request The request that needs to be modified.
+</span>32 <span style=''>    * @return The request with appended user-agent string.
+</span>33 <span style=''>    */
+</span>34 <span style=''>  def applyUserAgent(request: AmazonWebServiceRequest): AmazonWebServiceRequest = {
+</span>35 <span style=''>    </span><span style='background: #AEF1AE'>request.getRequestClientOptions.appendUserAgent(USER_AGENT)</span><span style=''>
+</span>36 <span style=''>    request
+</span>37 <span style=''>  }
+</span>38 <span style=''>
+</span>39 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          1557
+        </td>
+        <td>
+          756
+          -
+          800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Package.getImplementationVersion
+        </td>
+        <td style="background: #AEF1AE">
+          InternalUtils.this.getClass().getPackage().getImplementationVersion()
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          1558
+        </td>
+        <td>
+          823
+          -
+          858
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.PropertiesTrait.versionNumberString
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Properties.versionNumberString
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1559
+        </td>
+        <td>
+          875
+          -
+          904
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.getProperty
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.System.getProperty(&quot;os.name&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1560
+        </td>
+        <td>
+          924
+          -
+          956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.getProperty
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.System.getProperty(&quot;os.version&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1562
+        </td>
+        <td>
+          1005
+          -
+          1020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.PACKAGE_VERSION
+        </td>
+        <td style="background: #AEF1AE">
+          InternalUtils.this.PACKAGE_VERSION
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1561
+        </td>
+        <td>
+          976
+          -
+          1002
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;AWS-SageMaker-Spark-SDK/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1569
+        </td>
+        <td>
+          976
+          -
+          1087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;AWS-SageMaker-Spark-SDK/&quot;.+(InternalUtils.this.PACKAGE_VERSION).+(&quot; scala/&quot;).+(InternalUtils.this.SCALA_VERSION).+(&quot; &quot;).+(InternalUtils.this.OS_NAME).+(&quot;/&quot;).+(InternalUtils.this.OS_VERSION)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1563
+        </td>
+        <td>
+          1027
+          -
+          1036
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; scala/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1566
+        </td>
+        <td>
+          1061
+          -
+          1068
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.OS_NAME
+        </td>
+        <td style="background: #AEF1AE">
+          InternalUtils.this.OS_NAME
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1568
+        </td>
+        <td>
+          1077
+          -
+          1087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.OS_VERSION
+        </td>
+        <td style="background: #AEF1AE">
+          InternalUtils.this.OS_VERSION
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1565
+        </td>
+        <td>
+          1055
+          -
+          1058
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1564
+        </td>
+        <td>
+          1039
+          -
+          1052
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.SCALA_VERSION
+        </td>
+        <td style="background: #AEF1AE">
+          InternalUtils.this.SCALA_VERSION
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1567
+        </td>
+        <td>
+          1071
+          -
+          1074
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1571
+        </td>
+        <td>
+          1349
+          -
+          1408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.RequestClientOptions.appendUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          request.getRequestClientOptions().appendUserAgent(InternalUtils.this.USER_AGENT)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1570
+        </td>
+        <td>
+          1397
+          -
+          1407
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.USER_AGENT
+        </td>
+        <td style="background: #AEF1AE">
+          InternalUtils.this.USER_AGENT
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

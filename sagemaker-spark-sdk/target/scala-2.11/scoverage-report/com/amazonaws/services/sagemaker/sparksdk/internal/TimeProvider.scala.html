@@ -1,0 +1,173 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/internal/TimeProvider.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.internal
+</span>17 <span style=''>
+</span>18 <span style=''>import java.util.concurrent.TimeUnit
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''>  * Injectable interface for interacting with System time.
+</span>22 <span style=''>  *
+</span>23 <span style=''>  * Used for testing purposes only.
+</span>24 <span style=''>  */
+</span>25 <span style=''>trait TimeProvider {
+</span>26 <span style=''>  def currentTimeMillis : Long
+</span>27 <span style=''>  def sleep(durationMillis : Long) : Unit
+</span>28 <span style=''>  def getElapsedTimeInSeconds(startTime: Long) : Long
+</span>29 <span style=''>}
+</span>30 <span style=''>
+</span>31 <span style=''>/**
+</span>32 <span style=''>  * Implements TimeProvider using the Java System Time.
+</span>33 <span style=''>  */
+</span>34 <span style=''>class SystemTimeProvider extends TimeProvider {
+</span>35 <span style=''>  override def currentTimeMillis : Long = </span><span style='background: #AEF1AE'>System.currentTimeMillis</span><span style=''>
+</span>36 <span style=''>  override def sleep(durationMillis : Long) : Unit = </span><span style='background: #F0ADAD'>Thread.sleep(durationMillis)</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  /**
+</span>39 <span style=''>    * Measures elapsed time, in seconds, for a given start time.
+</span>40 <span style=''>    *
+</span>41 <span style=''>    * @param startTime Starting time, in milliseconds, used to calculate elapsed time
+</span>42 <span style=''>    * @return Elapsed time in seconds
+</span>43 <span style=''>    */
+</span>44 <span style=''>  def getElapsedTimeInSeconds(startTime: Long): Long = {
+</span>45 <span style=''>    val elapsedTime = </span><span style='background: #AEF1AE'>currentTimeMillis - startTime</span><span style=''>
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>TimeUnit.MILLISECONDS.toSeconds(elapsedTime)</span><span style=''>
+</span>47 <span style=''>  }
+</span>48 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1572
+        </td>
+        <td>
+          1095
+          -
+          1119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1573
+        </td>
+        <td>
+          1173
+          -
+          1201
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.sleep
+        </td>
+        <td style="background: #F0ADAD">
+          java.this.lang.Thread.sleep(durationMillis)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1574
+        </td>
+        <td>
+          1490
+          -
+          1519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.-
+        </td>
+        <td style="background: #AEF1AE">
+          SystemTimeProvider.this.currentTimeMillis.-(startTime)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1575
+        </td>
+        <td>
+          1524
+          -
+          1568
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.TimeUnit.toSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          MILLISECONDS.toSeconds(elapsedTime)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

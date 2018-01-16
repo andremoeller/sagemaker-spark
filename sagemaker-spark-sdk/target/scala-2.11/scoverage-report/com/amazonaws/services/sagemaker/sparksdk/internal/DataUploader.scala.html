@@ -1,0 +1,2016 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/internal/DataUploader.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.internal
+</span>16 <span style=''>
+</span>17 <span style=''>import java.io.{File, FileWriter, Writer}
+</span>18 <span style=''>
+</span>19 <span style=''>import scala.collection.mutable.ListBuffer
+</span>20 <span style=''>
+</span>21 <span style=''>import org.apache.hadoop.fs.{FileSystem, Path}
+</span>22 <span style=''>
+</span>23 <span style=''>import org.apache.spark.sql.Dataset
+</span>24 <span style=''>
+</span>25 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.S3DataPath
+</span>26 <span style=''>
+</span>27 <span style=''>/**
+</span>28 <span style=''>  * Uploads a DataFrame to S3 using the given data format and with the given options. Detects
+</span>29 <span style=''>  * if the application is being run on an EMR cluster to determine the S3 FileSystem scheme,
+</span>30 <span style=''>  * and whether to specify Training input data using a manifest file rather than an
+</span>31 <span style=''>  * S3 Prefix.
+</span>32 <span style=''>  *
+</span>33 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator]]
+</span>34 <span style=''>  * depends on DataUploader to write DataFrames to S3 for training on
+</span>35 <span style=''>  * Amazon SageMaker.
+</span>36 <span style=''>  *
+</span>37 <span style=''>  * @param dataFormat the Spark-supported data format to write the DataFrame as, such as
+</span>38 <span style=''>  *                   &quot;sagemaker&quot; or &quot;libsvm&quot;
+</span>39 <span style=''>  * @param dataFormatOptions a map of options to configure the Spark DataFrameWriter corresponding
+</span>40 <span style=''>  *                          to the dataFormat.
+</span>41 <span style=''>  */
+</span>42 <span style=''>private[sparksdk] class DataUploader(final val dataFormat: String, final val dataFormatOptions:
+</span>43 <span style=''>collection.immutable.Map[String, String]) {
+</span>44 <span style=''>
+</span>45 <span style=''>  /* Prefix for local file system temporary files containing a manifest of SageMaker training
+</span>46 <span style=''>  files */
+</span>47 <span style=''>  private final val ManifestTempFilePrefix = </span><span style='background: #F0ADAD'>&quot;sagemaker-manifest&quot;</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>  /* Suffix for manifest s3 objects */
+</span>50 <span style=''>  private final val ManifestKeySuffix = </span><span style='background: #F0ADAD'>&quot;.manifest.txt&quot;</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  /* S3 metadata object key suffix, created by the hadoop filesystem */
+</span>53 <span style=''>  private final val HDFSFolderSuffix = </span><span style='background: #F0ADAD'>&quot;$folder$&quot;</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>  /* Hadoop file system entry used to indicate success of a map-reduce file output committer */
+</span>56 <span style=''>  private final val HadoopSuccessFile = </span><span style='background: #F0ADAD'>&quot;_SUCCESS&quot;</span><span style=''>
+</span>57 <span style=''>
+</span>58 <span style=''>  /* Filesystem scheme to use when uploading to S3. */
+</span>59 <span style=''>  private final val S3FSScheme = </span><span style='background: #F0ADAD'>&quot;s3a&quot;</span><span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>  /* Filesystem scheme to use when uploading to S3 from EMR */
+</span>62 <span style=''>  private final val EMRFSScheme = </span><span style='background: #F0ADAD'>&quot;s3&quot;</span><span style=''>
+</span>63 <span style=''>
+</span>64 <span style=''>  /* Hadoop property that names the Filesystem implementation class. */
+</span>65 <span style=''>  private final val EmrfsProperty = </span><span style='background: #F0ADAD'>&quot;fs.s3.impl&quot;</span><span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>  /* When running on EMR, the property &quot;fs.s3.impl&quot; is this class name. */
+</span>68 <span style=''>  private final val EmrFSClassName = </span><span style='background: #F0ADAD'>&quot;EmrFileSystem&quot;</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>
+</span>71 <span style=''>  /**
+</span>72 <span style=''>    * Uploads a dataset to S3. If running on EMRFS, also uploads a manifest file containing a
+</span>73 <span style=''>    * list of the uploaded files.
+</span>74 <span style=''>    *
+</span>75 <span style=''>    * @param inputS3DataPath S3 URI to upload dataset to
+</span>76 <span style=''>    * @param dataset         Dataset to upload
+</span>77 <span style=''>    * @return a DataUploadResult containing an S3Path, either a ManifestDataUploadResult with an
+</span>78 <span style=''>    *         S3DataPath to a manifest file if a manifest was uploaded to S3 or an
+</span>79 <span style=''>    *         ObjectPrefixUploadResult with an S3DataPath to the S3 location
+</span>80 <span style=''>    *         where the dataset was uploaded if a manifest was not uploaded to S3.
+</span>81 <span style=''>    */
+</span>82 <span style=''>  def uploadData(inputS3DataPath: S3DataPath, dataset: Dataset[_]): DataUploadResult = {
+</span>83 <span style=''>    val inputDataBucket = </span><span style='background: #AEF1AE'>inputS3DataPath.bucket</span><span style=''>
+</span>84 <span style=''>    val inputDataObjectPath = </span><span style='background: #AEF1AE'>inputS3DataPath.objectPath</span><span style=''>
+</span>85 <span style=''>
+</span>86 <span style=''>    val onEMR = </span><span style='background: #AEF1AE'>usingEMRFS(dataset)</span><span style=''>
+</span>87 <span style=''>    val fsScheme = </span><span style='background: #AEF1AE'>getFSScheme(onEMR)</span><span style=''>
+</span>88 <span style=''>
+</span>89 <span style=''>    val inputURI = </span><span style='background: #AEF1AE'>s&quot;$fsScheme://$inputDataBucket/$inputDataObjectPath&quot;</span><span style=''>
+</span>90 <span style=''>    </span><span style='background: #AEF1AE'>writeData(dataset, inputURI)</span><span style=''>
+</span>91 <span style=''>
+</span>92 <span style=''>    if (onEMR) </span><span style='background: #AEF1AE'>{
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      // Use manifest
+</span>94 <span style=''></span><span style='background: #AEF1AE'>      val inputPath = new Path(inputURI)
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      val hadoopFS = getHadoopFilesystem(inputPath, dataset)
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      val manifestKey = writeAndUploadManifest(inputPath, hadoopFS)
+</span>97 <span style=''></span><span style='background: #AEF1AE'>      ManifestDataUploadResult(S3DataPath(s&quot;$inputDataBucket&quot;, s&quot;$manifestKey&quot;))
+</span>98 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else {
+</span>99 <span style=''>      </span><span style='background: #AEF1AE'>ObjectPrefixUploadResult(S3DataPath(inputDataBucket, inputDataObjectPath))</span><span style=''>
+</span>100 <span style=''>    }
+</span>101 <span style=''>  }
+</span>102 <span style=''>
+</span>103 <span style=''>  private[internal] def getFSScheme(onEMR: Boolean) : String = {
+</span>104 <span style=''>    if (onEMR) </span><span style='background: #AEF1AE'>EMRFSScheme</span><span style=''> else </span><span style='background: #AEF1AE'>S3FSScheme</span><span style=''>
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  private[sparksdk] def writeData(dataset: Dataset[_], inputURI: String): Unit = {
+</span>108 <span style=''>    // Do not write _SUCCESS file.
+</span>109 <span style=''>    </span><span style='background: #F0ADAD'>dataset.sparkSession.sparkContext.hadoopConfiguration.set(
+</span>110 <span style=''></span><span style='background: #F0ADAD'>      &quot;mapreduce.fileoutputcommitter.marksuccessfuljobs&quot;, &quot;false&quot;)</span><span style=''>
+</span>111 <span style=''>    </span><span style='background: #F0ADAD'>dataset.write.format(dataFormat).options(dataFormatOptions).save(inputURI)</span><span style=''>
+</span>112 <span style=''>  }
+</span>113 <span style=''>
+</span>114 <span style=''>  private[internal] def usingEMRFS(dataset: Dataset[_]): Boolean = {
+</span>115 <span style=''>    val fileSystemClassName = </span><span style='background: #AEF1AE'>dataset.sparkSession.sparkContext.
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      hadoopConfiguration.get(EmrfsProperty)</span><span style=''>
+</span>117 <span style=''>    </span><span style='background: #AEF1AE'>fileSystemClassName != null &amp;&amp; fileSystemClassName.contains(EmrFSClassName)</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  private[internal] def getHadoopFilesystem(inputPath: Path, dataset: Dataset[_]): FileSystem = {
+</span>121 <span style=''>    </span><span style='background: #F0ADAD'>inputPath.getFileSystem(dataset.sparkSession.sparkContext.hadoopConfiguration)</span><span style=''>
+</span>122 <span style=''>  }
+</span>123 <span style=''>
+</span>124 <span style=''>  private[internal] def writeAndUploadManifest(sagemakerInput: Path, hadoopFS: FileSystem):
+</span>125 <span style=''>  String = {
+</span>126 <span style=''>    val tempFile = </span><span style='background: #AEF1AE'>File.createTempFile(ManifestTempFilePrefix, ManifestTempFilePrefix)</span><span style=''>
+</span>127 <span style=''>    val manifestWriter = </span><span style='background: #AEF1AE'>new FileWriter(tempFile)</span><span style=''>
+</span>128 <span style=''>    try {
+</span>129 <span style=''>      </span><span style='background: #AEF1AE'>writeManifest(sagemakerInput, hadoopFS, manifestWriter)</span><span style=''>
+</span>130 <span style=''>    } finally {
+</span>131 <span style=''>      </span><span style='background: #AEF1AE'>manifestWriter.close()</span><span style=''>
+</span>132 <span style=''>    }
+</span>133 <span style=''>    val manifestPath = </span><span style='background: #AEF1AE'>new Path(s&quot;${sagemakerInput.toUri.getPath}$ManifestKeySuffix&quot;)</span><span style=''>
+</span>134 <span style=''>    </span><span style='background: #AEF1AE'>hadoopFS.copyFromLocalFile(true, new Path(tempFile.getAbsolutePath), manifestPath)</span><span style=''>
+</span>135 <span style=''>    </span><span style='background: #AEF1AE'>manifestPath.toUri.getPath.stripPrefix(&quot;/&quot;)</span><span style=''> // Remove leading '/' to produce an s3 key
+</span>136 <span style=''>  }
+</span>137 <span style=''>
+</span>138 <span style=''>  /**
+</span>139 <span style=''>    * Writes manifest entries for sagemaker training input files rooted in the input path.
+</span>140 <span style=''>    *
+</span>141 <span style=''>    * @param sagemakerInput The input path containing sagemaker data files
+</span>142 <span style=''>    * @param hadoopFS       The hadoop file system
+</span>143 <span style=''>    * @param manifestWriter The writer to write manifest entries to
+</span>144 <span style=''>    */
+</span>145 <span style=''>  private[internal] def writeManifest(sagemakerInput: Path,
+</span>146 <span style=''>                                      hadoopFS: FileSystem,
+</span>147 <span style=''>                                      manifestWriter: Writer): Unit = {
+</span>148 <span style=''>    val hadoopFSIterator = </span><span style='background: #AEF1AE'>hadoopFS.listFiles(sagemakerInput, true)</span><span style=''>
+</span>149 <span style=''>    val manifestStringBuilder = </span><span style='background: #AEF1AE'>new StringBuilder(&quot;[{\&quot;prefix\&quot;: \&quot;&quot; + sagemakerInput + &quot;/\&quot;}, &quot;)</span><span style=''>
+</span>150 <span style=''>    </span><span style='background: #AEF1AE'>require(hadoopFSIterator.hasNext, </span><span style='background: #F0ADAD'>s&quot;No files found at $sagemakerInput.&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>151 <span style=''>    val fileNames = </span><span style='background: #AEF1AE'>ListBuffer.empty[String]</span><span style=''>
+</span>152 <span style=''>    while (</span><span style='background: #AEF1AE'>hadoopFSIterator.hasNext</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>153 <span style=''></span><span style='background: #AEF1AE'>      val nextFile = hadoopFSIterator.next.getPath
+</span>154 <span style=''></span><span style='background: #AEF1AE'>      val fileName = nextFile.getName
+</span>155 <span style=''></span><span style='background: #AEF1AE'>      if (!isHadoopSpecialFile(fileName)) {
+</span>156 <span style=''></span><span style='background: #AEF1AE'>        fileNames.append(&quot;\&quot;&quot; + fileName + &quot;\&quot;&quot;)
+</span>157 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>158 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>159 <span style=''>    </span><span style='background: #AEF1AE'>require(fileNames.nonEmpty, </span><span style='background: #F0ADAD'>s&quot;No non-hadoop files found at $sagemakerInput.&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>160 <span style=''>    </span><span style='background: #AEF1AE'>manifestStringBuilder.append(fileNames.mkString(&quot;, &quot;))</span><span style=''>
+</span>161 <span style=''>    </span><span style='background: #AEF1AE'>manifestWriter.write(manifestStringBuilder.append(&quot;]&quot;).toString)</span><span style=''>
+</span>162 <span style=''>  }
+</span>163 <span style=''>
+</span>164 <span style=''>  private[internal] def isHadoopSpecialFile(fileName: String): Boolean = {
+</span>165 <span style=''>    </span><span style='background: #AEF1AE'>fileName.endsWith(HDFSFolderSuffix) || fileName.equals(HadoopSuccessFile)</span><span style=''>
+</span>166 <span style=''>  }
+</span>167 <span style=''>}
+</span>168 <span style=''>
+</span>169 <span style=''>sealed trait DataUploadResult {
+</span>170 <span style=''>  def s3DataPath: S3DataPath
+</span>171 <span style=''>}
+</span>172 <span style=''>
+</span>173 <span style=''>case class ManifestDataUploadResult(override val s3DataPath: S3DataPath) extends DataUploadResult
+</span>174 <span style=''>
+</span>175 <span style=''>case class ObjectPrefixUploadResult(override val s3DataPath: S3DataPath) extends DataUploadResult
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1472
+        </td>
+        <td>
+          1912
+          -
+          1932
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;sagemaker-manifest&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1473
+        </td>
+        <td>
+          2013
+          -
+          2028
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.manifest.txt&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1474
+        </td>
+        <td>
+          2141
+          -
+          2151
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;$folder$&quot;
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1475
+        </td>
+        <td>
+          2289
+          -
+          2299
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_SUCCESS&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1476
+        </td>
+        <td>
+          2389
+          -
+          2394
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;s3a&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1477
+        </td>
+        <td>
+          2493
+          -
+          2497
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;s3&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1478
+        </td>
+        <td>
+          2607
+          -
+          2619
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;fs.s3.impl&quot;
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1479
+        </td>
+        <td>
+          2733
+          -
+          2748
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;EmrFileSystem&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1480
+        </td>
+        <td>
+          3457
+          -
+          3479
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.bucket
+        </td>
+        <td style="background: #AEF1AE">
+          inputS3DataPath.bucket
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1481
+        </td>
+        <td>
+          3510
+          -
+          3536
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.objectPath
+        </td>
+        <td style="background: #AEF1AE">
+          inputS3DataPath.objectPath
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1482
+        </td>
+        <td>
+          3554
+          -
+          3573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.usingEMRFS
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.usingEMRFS(dataset)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1483
+        </td>
+        <td>
+          3593
+          -
+          3611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.getFSScheme
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.getFSScheme(onEMR)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1484
+        </td>
+        <td>
+          3632
+          -
+          3684
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;://&quot;, &quot;/&quot;, &quot;&quot;).s(fsScheme, inputDataBucket, inputDataObjectPath)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1485
+        </td>
+        <td>
+          3689
+          -
+          3717
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.writeData
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.writeData(dataset, inputURI)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1493
+        </td>
+        <td>
+          3734
+          -
+          4014
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val inputPath: org.apache.hadoop.fs.Path = new org.apache.hadoop.fs.Path(inputURI);
+  val hadoopFS: org.apache.hadoop.fs.FileSystem = DataUploader.this.getHadoopFilesystem(inputPath, dataset);
+  val manifestKey: String = DataUploader.this.writeAndUploadManifest(inputPath, hadoopFS);
+  ManifestDataUploadResult.apply(com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(inputDataBucket), scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(manifestKey)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1486
+        </td>
+        <td>
+          3780
+          -
+          3798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.Path.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.hadoop.fs.Path(inputURI)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1487
+        </td>
+        <td>
+          3820
+          -
+          3859
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.getHadoopFilesystem
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.getHadoopFilesystem(inputPath, dataset)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1488
+        </td>
+        <td>
+          3884
+          -
+          3927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.writeAndUploadManifest
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.writeAndUploadManifest(inputPath, hadoopFS)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1492
+        </td>
+        <td>
+          3934
+          -
+          4008
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.ManifestDataUploadResult.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ManifestDataUploadResult.apply(com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(inputDataBucket), scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(manifestKey)))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1491
+        </td>
+        <td>
+          3959
+          -
+          4007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(inputDataBucket), scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(manifestKey))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1490
+        </td>
+        <td>
+          3991
+          -
+          4006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(manifestKey)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1489
+        </td>
+        <td>
+          3970
+          -
+          3989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(inputDataBucket)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1494
+        </td>
+        <td>
+          4053
+          -
+          4101
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply(inputDataBucket, inputDataObjectPath)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1496
+        </td>
+        <td>
+          4028
+          -
+          4102
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.ObjectPrefixUploadResult.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ObjectPrefixUploadResult.apply(com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply(inputDataBucket, inputDataObjectPath))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1495
+        </td>
+        <td>
+          4028
+          -
+          4102
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.ObjectPrefixUploadResult.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ObjectPrefixUploadResult.apply(com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply(inputDataBucket, inputDataObjectPath))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1500
+        </td>
+        <td>
+          4211
+          -
+          4221
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;s3a&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1497
+        </td>
+        <td>
+          4194
+          -
+          4205
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;s3&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1499
+        </td>
+        <td>
+          4211
+          -
+          4221
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;s3a&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1498
+        </td>
+        <td>
+          4194
+          -
+          4205
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;s3&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1501
+        </td>
+        <td>
+          4349
+          -
+          4474
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.conf.Configuration.set
+        </td>
+        <td style="background: #F0ADAD">
+          dataset.sparkSession.sparkContext.hadoopConfiguration.set(&quot;mapreduce.fileoutputcommitter.marksuccessfuljobs&quot;, &quot;false&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1502
+        </td>
+        <td>
+          4479
+          -
+          4553
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.DataFrameWriter.save
+        </td>
+        <td style="background: #F0ADAD">
+          dataset.write.format(DataUploader.this.dataFormat).options(DataUploader.this.dataFormatOptions).save(inputURI)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          1503
+        </td>
+        <td>
+          4658
+          -
+          4737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.conf.Configuration.get
+        </td>
+        <td style="background: #AEF1AE">
+          dataset.sparkSession.sparkContext.hadoopConfiguration.get(&quot;fs.s3.impl&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1506
+        </td>
+        <td>
+          4742
+          -
+          4817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          fileSystemClassName.!=(null).&amp;&amp;(fileSystemClassName.contains(&quot;EmrFileSystem&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1505
+        </td>
+        <td>
+          4773
+          -
+          4817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.contains
+        </td>
+        <td style="background: #AEF1AE">
+          fileSystemClassName.contains(&quot;EmrFileSystem&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1504
+        </td>
+        <td>
+          4765
+          -
+          4769
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1508
+        </td>
+        <td>
+          4925
+          -
+          5003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.Path.getFileSystem
+        </td>
+        <td style="background: #F0ADAD">
+          inputPath.getFileSystem(dataset.sparkSession.sparkContext.hadoopConfiguration)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1507
+        </td>
+        <td>
+          4949
+          -
+          5002
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.SparkContext.hadoopConfiguration
+        </td>
+        <td style="background: #F0ADAD">
+          dataset.sparkSession.sparkContext.hadoopConfiguration
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1509
+        </td>
+        <td>
+          5133
+          -
+          5200
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.createTempFile
+        </td>
+        <td style="background: #AEF1AE">
+          java.io.File.createTempFile(&quot;sagemaker-manifest&quot;, &quot;sagemaker-manifest&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1510
+        </td>
+        <td>
+          5226
+          -
+          5250
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileWriter.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.FileWriter(tempFile)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1512
+        </td>
+        <td>
+          5267
+          -
+          5322
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.writeManifest
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.writeManifest(sagemakerInput, hadoopFS, manifestWriter)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1511
+        </td>
+        <td>
+          5267
+          -
+          5322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.writeManifest
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.writeManifest(sagemakerInput, hadoopFS, manifestWriter)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          1514
+        </td>
+        <td>
+          5345
+          -
+          5367
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.io.OutputStreamWriter.close
+        </td>
+        <td style="background: #AEF1AE">
+          manifestWriter.close()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          1513
+        </td>
+        <td>
+          5345
+          -
+          5367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStreamWriter.close
+        </td>
+        <td style="background: #AEF1AE">
+          manifestWriter.close()
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1519
+        </td>
+        <td>
+          5440
+          -
+          5457
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.manifest.txt&quot;
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1518
+        </td>
+        <td>
+          5410
+          -
+          5438
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URI.getPath
+        </td>
+        <td style="background: #AEF1AE">
+          sagemakerInput.toUri().getPath()
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1521
+        </td>
+        <td>
+          5397
+          -
+          5459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.Path.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.hadoop.fs.Path(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(sagemakerInput.toUri().getPath(), &quot;.manifest.txt&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1515
+        </td>
+        <td>
+          5408
+          -
+          5409
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1517
+        </td>
+        <td>
+          5457
+          -
+          5458
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1520
+        </td>
+        <td>
+          5406
+          -
+          5458
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(sagemakerInput.toUri().getPath(), &quot;.manifest.txt&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1516
+        </td>
+        <td>
+          5439
+          -
+          5440
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1524
+        </td>
+        <td>
+          5497
+          -
+          5531
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.Path.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.hadoop.fs.Path(tempFile.getAbsolutePath())
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1523
+        </td>
+        <td>
+          5506
+          -
+          5530
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.getAbsolutePath
+        </td>
+        <td style="background: #AEF1AE">
+          tempFile.getAbsolutePath()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1522
+        </td>
+        <td>
+          5491
+          -
+          5495
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1525
+        </td>
+        <td>
+          5464
+          -
+          5546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.FileSystem.copyFromLocalFile
+        </td>
+        <td style="background: #AEF1AE">
+          hadoopFS.copyFromLocalFile(true, new org.apache.hadoop.fs.Path(tempFile.getAbsolutePath()), manifestPath)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1526
+        </td>
+        <td>
+          5551
+          -
+          5594
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripPrefix
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(manifestPath.toUri().getPath()).stripPrefix(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          1527
+        </td>
+        <td>
+          6166
+          -
+          6206
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.FileSystem.listFiles
+        </td>
+        <td style="background: #AEF1AE">
+          hadoopFS.listFiles(sagemakerInput, true)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1528
+        </td>
+        <td>
+          6257
+          -
+          6303
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;[{\&quot;prefix\&quot;: \&quot;&quot;.+(sagemakerInput).+(&quot;/\&quot;}, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1529
+        </td>
+        <td>
+          6239
+          -
+          6304
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.`package`.StringBuilder(&quot;[{\&quot;prefix\&quot;: \&quot;&quot;.+(sagemakerInput).+(&quot;/\&quot;}, &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          1530
+        </td>
+        <td>
+          6317
+          -
+          6341
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.RemoteIterator.hasNext
+        </td>
+        <td style="background: #AEF1AE">
+          hadoopFSIterator.hasNext()
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          1532
+        </td>
+        <td>
+          6309
+          -
+          6381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(hadoopFSIterator.hasNext(), scala.StringContext.apply(&quot;No files found at &quot;, &quot;.&quot;).s(sagemakerInput))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          1531
+        </td>
+        <td>
+          6343
+          -
+          6380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;No files found at &quot;, &quot;.&quot;).s(sagemakerInput)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1533
+        </td>
+        <td>
+          6402
+          -
+          6426
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ListBuffer.empty[String]
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1545
+        </td>
+        <td>
+          6431
+          -
+          6431
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1544
+        </td>
+        <td>
+          6464
+          -
+          6661
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    val nextFile: org.apache.hadoop.fs.Path = hadoopFSIterator.next().getPath();
+    val fileName: String = nextFile.getName();
+    if (DataUploader.this.isHadoopSpecialFile(fileName).unary_!)
+      fileNames.append(&quot;\&quot;&quot;.+(fileName).+(&quot;\&quot;&quot;))
+    else
+      ()
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1546
+        </td>
+        <td>
+          6431
+          -
+          6431
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1534
+        </td>
+        <td>
+          6438
+          -
+          6462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.RemoteIterator.hasNext
+        </td>
+        <td style="background: #AEF1AE">
+          hadoopFSIterator.hasNext()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1543
+        </td>
+        <td>
+          6464
+          -
+          6464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1535
+        </td>
+        <td>
+          6487
+          -
+          6516
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.FileStatus.getPath
+        </td>
+        <td style="background: #AEF1AE">
+          hadoopFSIterator.next().getPath()
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          1536
+        </td>
+        <td>
+          6538
+          -
+          6554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.hadoop.fs.Path.getName
+        </td>
+        <td style="background: #AEF1AE">
+          nextFile.getName()
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1542
+        </td>
+        <td>
+          6561
+          -
+          6561
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1541
+        </td>
+        <td>
+          6561
+          -
+          6561
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1537
+        </td>
+        <td>
+          6565
+          -
+          6595
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          DataUploader.this.isHadoopSpecialFile(fileName).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1539
+        </td>
+        <td>
+          6607
+          -
+          6647
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.BufferLike.append
+        </td>
+        <td style="background: #AEF1AE">
+          fileNames.append(&quot;\&quot;&quot;.+(fileName).+(&quot;\&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1538
+        </td>
+        <td>
+          6624
+          -
+          6646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\&quot;&quot;.+(fileName).+(&quot;\&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1540
+        </td>
+        <td>
+          6607
+          -
+          6647
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.BufferLike.append
+        </td>
+        <td style="background: #AEF1AE">
+          fileNames.append(&quot;\&quot;&quot;.+(fileName).+(&quot;\&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1548
+        </td>
+        <td>
+          6694
+          -
+          6742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;No non-hadoop files found at &quot;, &quot;.&quot;).s(sagemakerInput)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1547
+        </td>
+        <td>
+          6674
+          -
+          6692
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.generic.TraversableForwarder.nonEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          fileNames.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1549
+        </td>
+        <td>
+          6666
+          -
+          6743
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(fileNames.nonEmpty, scala.StringContext.apply(&quot;No non-hadoop files found at &quot;, &quot;.&quot;).s(sagemakerInput))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1551
+        </td>
+        <td>
+          6748
+          -
+          6802
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #AEF1AE">
+          manifestStringBuilder.append(fileNames.mkString(&quot;, &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1550
+        </td>
+        <td>
+          6777
+          -
+          6801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.TraversableForwarder.mkString
+        </td>
+        <td style="background: #AEF1AE">
+          fileNames.mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1553
+        </td>
+        <td>
+          6807
+          -
+          6871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.Writer.write
+        </td>
+        <td style="background: #AEF1AE">
+          manifestWriter.write(manifestStringBuilder.append(&quot;]&quot;).toString())
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1552
+        </td>
+        <td>
+          6828
+          -
+          6870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.toString
+        </td>
+        <td style="background: #AEF1AE">
+          manifestStringBuilder.append(&quot;]&quot;).toString()
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1554
+        </td>
+        <td>
+          6974
+          -
+          6990
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;$folder$&quot;
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1556
+        </td>
+        <td>
+          6956
+          -
+          7029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          fileName.endsWith(&quot;$folder$&quot;).||(fileName.equals(&quot;_SUCCESS&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1555
+        </td>
+        <td>
+          6995
+          -
+          7029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equals
+        </td>
+        <td style="background: #AEF1AE">
+          fileName.equals(&quot;_SUCCESS&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

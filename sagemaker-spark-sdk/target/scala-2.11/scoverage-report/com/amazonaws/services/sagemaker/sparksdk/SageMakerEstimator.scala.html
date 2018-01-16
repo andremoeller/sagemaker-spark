@@ -1,0 +1,5842 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/SageMakerEstimator.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk
+</span>17 <span style=''>
+</span>18 <span style=''>import java.time.Duration
+</span>19 <span style=''>import java.util.UUID
+</span>20 <span style=''>
+</span>21 <span style=''>import scala.collection.JavaConversions._
+</span>22 <span style=''>import scala.collection.immutable.Map
+</span>23 <span style=''>
+</span>24 <span style=''>import com.amazonaws.SdkBaseException
+</span>25 <span style=''>import com.amazonaws.retry.RetryUtils
+</span>26 <span style=''>import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
+</span>27 <span style=''>import com.amazonaws.services.s3.model.AmazonS3Exception
+</span>28 <span style=''>import com.amazonaws.services.securitytoken.{AWSSecurityTokenService, AWSSecurityTokenServiceClientBuilder}
+</span>29 <span style=''>import com.amazonaws.services.securitytoken.model.GetCallerIdentityRequest
+</span>30 <span style=''>
+</span>31 <span style=''>import org.apache.spark.SparkConf
+</span>32 <span style=''>import org.apache.spark.annotation.DeveloperApi
+</span>33 <span style=''>import org.apache.spark.ml.Estimator
+</span>34 <span style=''>import org.apache.spark.ml.param.ParamMap
+</span>35 <span style=''>import org.apache.spark.ml.util.Identifiable
+</span>36 <span style=''>import org.apache.spark.sql.{Dataset, Row}
+</span>37 <span style=''>import org.apache.spark.sql.types.StructType
+</span>38 <span style=''>
+</span>39 <span style=''>import com.amazonaws.services.sagemaker.{AmazonSageMaker, AmazonSageMakerClientBuilder}
+</span>40 <span style=''>import com.amazonaws.services.sagemaker.model._
+</span>41 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.EndpointCreationPolicy
+</span>42 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.internal.{DataUploader, DataUploadResult, InternalUtils, ManifestDataUploadResult, ObjectPrefixUploadResult, SystemTimeProvider, TimeProvider}
+</span>43 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{RequestRowSerializer, ResponseRowDeserializer}
+</span>44 <span style=''>
+</span>45 <span style=''>/**
+</span>46 <span style=''>  * Determines whether and when to create the Endpoint and other Hosting resources.
+</span>47 <span style=''>  *
+</span>48 <span style=''>  * CREATE_ON_CONSTRUCT - create the Endpoint upon creation of the SageMakerModel, at the end of
+</span>49 <span style=''>  * fit()
+</span>50 <span style=''>  * CREATE_ON_TRANSFORM - create the Endpoint upon invocation of SageMakerModel.transform()
+</span>51 <span style=''>  * DO_NOT_CREATE - do not create the Endpoint
+</span>52 <span style=''>  */
+</span>53 <span style=''>object EndpointCreationPolicy extends Enumeration {
+</span>54 <span style=''>  type EndpointCreationPolicy = Value
+</span>55 <span style=''>  val CREATE_ON_CONSTRUCT, CREATE_ON_TRANSFORM, DO_NOT_CREATE = </span><span style='background: #AEF1AE'>Value</span><span style=''>
+</span>56 <span style=''>}
+</span>57 <span style=''>
+</span>58 <span style=''>object SageMakerEstimator {
+</span>59 <span style=''>  var TrainingJobPollInterval = </span><span style='background: #AEF1AE'>Duration.ofSeconds(5)</span><span style=''>
+</span>60 <span style=''>}
+</span>61 <span style=''>
+</span>62 <span style=''>/**
+</span>63 <span style=''>  * Adapts a SageMaker learning Algorithm to a Spark Estimator. Fits a [[SageMakerModel]] by
+</span>64 <span style=''>  * running a SageMaker Training Job on a Spark Dataset. Each call to
+</span>65 <span style=''>  * [[SageMakerEstimator!.fit* fit]] submits a new SageMaker Training Job, creates a new SageMaker
+</span>66 <span style=''>  * Model, and creates a new SageMaker Endpoint Config. A new Endpoint is either created by or
+</span>67 <span style=''>  * the returned SageMakerModel is configured to generate an Endpoint on SageMakerModel transform.
+</span>68 <span style=''>  *
+</span>69 <span style=''>  * On fit, the input [[org.apache.spark.sql.Dataset dataset]] is serialized with the specified
+</span>70 <span style=''>  * [[trainingSparkDataFormat]] using the specified [[trainingSparkDataFormatOptions]] and uploaded
+</span>71 <span style=''>  * to an S3 location specified by [[trainingInputS3DataPath]]. The serialized Dataset
+</span>72 <span style=''>  * is compressed with [[trainingCompressionCodec]], if not None.
+</span>73 <span style=''>  *
+</span>74 <span style=''>  * [[trainingProjectedColumns]] can be used to control which columns on the input Dataset are
+</span>75 <span style=''>  * transmitted to SageMaker. If not None, then only those column names will be serialized as input
+</span>76 <span style=''>  * to the SageMaker Training Job.
+</span>77 <span style=''>  *
+</span>78 <span style=''>  * A Training Job is created with the uploaded Dataset being input to the specified
+</span>79 <span style=''>  * [[trainingChannelName]], with the specified [[trainingInputMode]]. The algorithm is specified
+</span>80 <span style=''>  * [[trainingImage]], a Docker image URI reference.
+</span>81 <span style=''>  * The Training Job is created with [[trainingInstanceCount]] instances of type
+</span>82 <span style=''>  * [[trainingInstanceType]]. The Training Job will time-out after [[trainingMaxRuntimeInSeconds]],
+</span>83 <span style=''>  * if not None.
+</span>84 <span style=''>  *
+</span>85 <span style=''>  * SageMaker Training Job hyperparameters are built from the [[org.apache.spark.ml.param.Param]]s
+</span>86 <span style=''>  * set on this Estimator. Param objects set on this Estimator are retrieved during fit and
+</span>87 <span style=''>  * converted to a SageMaker Training Job hyperparameter Map.
+</span>88 <span style=''>  * Param objects are iterated over by invoking [[org.apache.spark.ml.param.Params.params params]]
+</span>89 <span style=''>  * on this Estimator.
+</span>90 <span style=''>  * Param objects with neither a default value nor a set value are ignored. If a Param is not set
+</span>91 <span style=''>  * but has a default value, the default value will be used. Param values are converted to SageMaker
+</span>92 <span style=''>  * hyperparameter String values by invoking [[org.apache.spark.ml.param.Params.toString toString]]
+</span>93 <span style=''>  * on the Param value.
+</span>94 <span style=''>  *
+</span>95 <span style=''>  * SageMaker uses the IAM Role with ARN [[sagemakerRole]] to access the input and output S3
+</span>96 <span style=''>  * buckets and trainingImage if the image is hosted in ECR. SageMaker Training Job output is
+</span>97 <span style=''>  * stored in a Training Job specific sub-prefix of [[trainingOutputS3DataPath]]. This contains
+</span>98 <span style=''>  * the SageMaker Training Job output file as well as the SageMaker Training Job model file.
+</span>99 <span style=''>  *
+</span>100 <span style=''>  * After the Training Job is created, this Estimator will poll for success. Upon success an
+</span>101 <span style=''>  * [[SageMakerModel]] is created and returned from fit. The SageMakerModel is created with a
+</span>102 <span style=''>  * [[modelImage]] Docker image URI, defining the SageMaker model primary container and with
+</span>103 <span style=''>  * [[modelEnvironmentVariables]] environment variables.
+</span>104 <span style=''>  * Each SageMakerModel has a corresponding SageMaker hosting Endpoint. This Endpoint runs on at
+</span>105 <span style=''>  * least [[endpointInitialInstanceCount]] instances of type [[endpointInstanceType]]. The
+</span>106 <span style=''>  * Endpoint is created either during construction of the SageMakerModel or on the first call to
+</span>107 <span style=''>  * [[SageMakerModel!.transform* transform]], controlled by [[endpointCreationPolicy]]. Each
+</span>108 <span style=''>  * Endpoint instance runs with [[sagemakerRole]] IAMRole.
+</span>109 <span style=''>  *
+</span>110 <span style=''>  * The [[SageMakerModel!.transform* transform]] method on SageMakerModel uses
+</span>111 <span style=''>  * [[requestRowSerializer]] to serialize Rows from the Dataset undergoing transformation, to
+</span>112 <span style=''>  * requests on the hosted SageMaker Endpoint. The [[responseRowDeserializer]] is used to convert
+</span>113 <span style=''>  * the response from the Endpoint to a series of Rows, forming the transformed Dataset. If
+</span>114 <span style=''>  * [[modelPrependInputRowsToTransformationRows]] is true, then each transformed Row is also
+</span>115 <span style=''>  * prepended with its corresponding input Row.
+</span>116 <span style=''>  *
+</span>117 <span style=''>  * @param trainingImage A SageMaker Training Job Algorithm Specification Training Image Docker
+</span>118 <span style=''>  *                      image URI.
+</span>119 <span style=''>  * @param modelImage A SageMaker Model hosting Docker image URI.
+</span>120 <span style=''>  * @param sagemakerRole The SageMaker TrainingJob and Hosting IAM Role. Used by a SageMaker to
+</span>121 <span style=''>  *                      access S3 and ECR resources. SageMaker hosted Endpoints instances
+</span>122 <span style=''>  *                      launched by this Estimator run with this role.
+</span>123 <span style=''>  * @param trainingInstanceType The SageMaker TrainingJob Instance Type to use
+</span>124 <span style=''>  * @param trainingInstanceCount The number of instances of instanceType to run an
+</span>125 <span style=''>  *                              SageMaker Training Job with
+</span>126 <span style=''>  * @param endpointInstanceType The SageMaker Endpoint Confing instance type
+</span>127 <span style=''>  * @param endpointInitialInstanceCount The SageMaker Endpoint Config minimum number of instances
+</span>128 <span style=''>  *                                     that can be used to host modelImage
+</span>129 <span style=''>  * @param requestRowSerializer Serializes Spark DataFrame [[Row]]s for transformation by Models
+</span>130 <span style=''>  *                             built from this Estimator.
+</span>131 <span style=''>  * @param responseRowDeserializer Deserializes an Endpoint response into a series of [[Row]]s.
+</span>132 <span style=''>  * @param hyperParameters A map from hyperParameter names to their respective values for training.
+</span>133 <span style=''>  * @param trainingInputS3DataPath An S3 location to upload SageMaker Training Job input data to.
+</span>134 <span style=''>  * @param trainingOutputS3DataPath An S3 location for SageMaker to store Training Job output data
+</span>135 <span style=''>  *                                 to.
+</span>136 <span style=''>  * @param trainingInstanceVolumeSizeInGB The EBS volume size in gigabytes of each instance
+</span>137 <span style=''>  * @param trainingProjectedColumns The columns to project from the Dataset being fit before
+</span>138 <span style=''>  *                                 training. If an Optional.empty is passed then no specific
+</span>139 <span style=''>  *                                 projection will occur and all columns will be serialized.
+</span>140 <span style=''>  * @param trainingChannelName The SageMaker Channel name to input serialized Dataset fit input to
+</span>141 <span style=''>  * @param trainingContentType The MIME type of the training data.
+</span>142 <span style=''>  * @param trainingS3DataDistribution The SageMaker Training Job S3 data distribution scheme.
+</span>143 <span style=''>  * @param trainingSparkDataFormat The Spark Data Format name used to serialize the Dataset being
+</span>144 <span style=''>  *                                fit for input to SageMaker.
+</span>145 <span style=''>  * @param trainingSparkDataFormatOptions The Spark Data Format Options used during serialization of
+</span>146 <span style=''>  *                                       the Dataset being fit.
+</span>147 <span style=''>  * @param trainingInputMode The SageMaker Training Job Channel input mode.
+</span>148 <span style=''>  * @param trainingCompressionCodec The type of compression to use when serializing the Dataset
+</span>149 <span style=''>  *                                 being fit for input to SageMaker.
+</span>150 <span style=''>  * @param trainingMaxRuntimeInSeconds A SageMaker Training Job Termination Condition
+</span>151 <span style=''>  *                                    MaxRuntimeInHours.
+</span>152 <span style=''>  * @param trainingKmsKeyId A KMS key ID for the Output Data Source
+</span>153 <span style=''>  * @param modelEnvironmentVariables The environment variables that SageMaker will set on the model
+</span>154 <span style=''>  *                                  container during execution.
+</span>155 <span style=''>  * @param endpointCreationPolicy Defines how a SageMaker Endpoint referenced by a
+</span>156 <span style=''>  *                               SageMakerModel is created.
+</span>157 <span style=''>  * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>158 <span style=''>  *                        and CreateEndpoint requests.
+</span>159 <span style=''>  * @param s3Client AmazonS3. Used to create a bucket for staging SageMaker Training Job input
+</span>160 <span style=''>  *                 and/or output if either are set to S3AutoCreatePath.
+</span>161 <span style=''>  * @param stsClient AmazonSTS. Used to resolve the account number when creating staging
+</span>162 <span style=''>  *                  input / output buckets.
+</span>163 <span style=''>  * @param modelPrependInputRowsToTransformationRows Whether the transformation result on Models
+</span>164 <span style=''>  *        built by this Estimator should also include the input Rows. If true, each output Row
+</span>165 <span style=''>  *        is formed by a concatenation of the input Row with the corresponding Row produced by
+</span>166 <span style=''>  *        SageMaker Endpoint invocation, produced by responseRowDeserializer.
+</span>167 <span style=''>  *        If false, each output Row is just taken from responseRowDeserializer.
+</span>168 <span style=''>  * @param deleteStagingDataAfterTraining Whether to remove the training data on s3 after training
+</span>169 <span style=''>  *                                       is complete or failed.
+</span>170 <span style=''>  * @param namePolicyFactory The [[NamePolicyFactory]] to use when naming SageMaker entities
+</span>171 <span style=''>  *        created during fit
+</span>172 <span style=''>  * @param uid The unique identifier of this Estimator. Used to represent this stage in Spark
+</span>173 <span style=''>  *            ML pipelines.
+</span>174 <span style=''>  */
+</span>175 <span style=''>class SageMakerEstimator(val trainingImage: String,
+</span>176 <span style=''>                         val modelImage: String,
+</span>177 <span style=''>                         val sagemakerRole: IAMRoleResource = IAMRoleFromConfig(),
+</span>178 <span style=''>                         val trainingInstanceType: String,
+</span>179 <span style=''>                         val trainingInstanceCount: Int,
+</span>180 <span style=''>                         val endpointInstanceType: String,
+</span>181 <span style=''>                         val endpointInitialInstanceCount: Int,
+</span>182 <span style=''>                         val requestRowSerializer: RequestRowSerializer,
+</span>183 <span style=''>                         val responseRowDeserializer: ResponseRowDeserializer,
+</span>184 <span style=''>                         val trainingInputS3DataPath: S3Resource = S3AutoCreatePath(),
+</span>185 <span style=''>                         val trainingOutputS3DataPath: S3Resource = S3AutoCreatePath(),
+</span>186 <span style=''>                         val trainingInstanceVolumeSizeInGB: Int = 1024,
+</span>187 <span style=''>                         val trainingProjectedColumns: Option[List[String]] = None,
+</span>188 <span style=''>                         val trainingChannelName: String = &quot;train&quot;,
+</span>189 <span style=''>                         val trainingContentType: Option[String] = None,
+</span>190 <span style=''>                         val trainingS3DataDistribution: String
+</span>191 <span style=''>                           = S3DataDistribution.ShardedByS3Key.toString,
+</span>192 <span style=''>                         val trainingSparkDataFormat: String = &quot;sagemaker&quot;,
+</span>193 <span style=''>                         val trainingSparkDataFormatOptions: Map[String, String] = Map(),
+</span>194 <span style=''>                         val trainingInputMode: String = TrainingInputMode.File.toString,
+</span>195 <span style=''>                         val trainingCompressionCodec: Option[String] = None,
+</span>196 <span style=''>                         val trainingMaxRuntimeInSeconds: Int = 24 * 60 * 60,
+</span>197 <span style=''>                         val trainingKmsKeyId: Option[String] = None,
+</span>198 <span style=''>                         val modelEnvironmentVariables: Map[String, String] = Map(),
+</span>199 <span style=''>                         val endpointCreationPolicy: EndpointCreationPolicy
+</span>200 <span style=''>                           = EndpointCreationPolicy.CREATE_ON_CONSTRUCT,
+</span>201 <span style=''>                         val sagemakerClient : AmazonSageMaker
+</span>202 <span style=''>                           = AmazonSageMakerClientBuilder.defaultClient,
+</span>203 <span style=''>                         val s3Client: AmazonS3 = AmazonS3ClientBuilder.defaultClient(),
+</span>204 <span style=''>                         val stsClient: AWSSecurityTokenService
+</span>205 <span style=''>                           = AWSSecurityTokenServiceClientBuilder.defaultClient(),
+</span>206 <span style=''>                         val modelPrependInputRowsToTransformationRows: Boolean = true,
+</span>207 <span style=''>                         val deleteStagingDataAfterTraining: Boolean = true,
+</span>208 <span style=''>                         val namePolicyFactory: NamePolicyFactory = new RandomNamePolicyFactory(),
+</span>209 <span style=''>                         override val uid: String = Identifiable.randomUID(&quot;sagemaker&quot;),
+</span>210 <span style=''>                         val hyperParameters: Map[String, String] = Map())
+</span>211 <span style=''>  extends Estimator[SageMakerModel] {
+</span>212 <span style=''>
+</span>213 <span style=''>  private[sparksdk] var timeProvider: TimeProvider = </span><span style='background: #AEF1AE'>new SystemTimeProvider</span><span style=''>
+</span>214 <span style=''>  private[sparksdk] var dataUploader: DataUploader = </span><span style='background: #AEF1AE'>new DataUploader(trainingSparkDataFormat,
+</span>215 <span style=''></span><span style='background: #AEF1AE'>    trainingSparkDataFormatOptions)</span><span style=''>
+</span>216 <span style=''>
+</span>217 <span style=''>  private[sparksdk] val trainingJobTimeout = </span><span style='background: #AEF1AE'>Duration.ofHours(trainingMaxRuntimeInSeconds)</span><span style=''>
+</span>218 <span style=''>
+</span>219 <span style=''>  /**
+</span>220 <span style=''>    * Builds a SageMaker Training Job hyper-parameter map from the Params set on this
+</span>221 <span style=''>    * defined both on the input set and on the
+</span>222 <span style=''>    *
+</span>223 <span style=''>    * @return a SageMaker hyper-parameter map
+</span>224 <span style=''>    */
+</span>225 <span style=''>  private[sparksdk] def makeHyperParameters() : java.util.Map[String, String] = {
+</span>226 <span style=''>    val trainingJobHyperParameters : java.util.Map[String, String] =
+</span>227 <span style=''>      </span><span style='background: #AEF1AE'>new java.util.HashMap(hyperParameters)</span><span style=''>
+</span>228 <span style=''>    </span><span style='background: #AEF1AE'>params.filter(p =&gt; hasDefault(p) || isSet(p)) map {
+</span>229 <span style=''></span><span style='background: #AEF1AE'>      case p =&gt; (p.name, this.getOrDefault(p).toString)
+</span>230 <span style=''></span><span style='background: #AEF1AE'>    } foreach {
+</span>231 <span style=''></span><span style='background: #AEF1AE'>      case (key, value) =&gt; trainingJobHyperParameters.put(key, value)
+</span>232 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>233 <span style=''>    trainingJobHyperParameters
+</span>234 <span style=''>  }
+</span>235 <span style=''>
+</span>236 <span style=''>  private[sparksdk] def resolveS3Path(s3Resource : S3Resource,
+</span>237 <span style=''>                                      trainingJobName : String, config : SparkConf): S3DataPath = {
+</span>238 <span style=''>    s3Resource match {
+</span>239 <span style=''>      case s3DataPath : S3DataPath =&gt;
+</span>240 <span style=''>        </span><span style='background: #AEF1AE'>new S3DataPath(s3DataPath.bucket, s3DataPath.objectPath + &quot;/&quot; + trainingJobName)</span><span style=''>
+</span>241 <span style=''>      case S3PathFromConfig(configKey) =&gt;
+</span>242 <span style=''>        val configValue = </span><span style='background: #AEF1AE'>config.get(configKey)</span><span style=''>
+</span>243 <span style=''>        if(</span><span style='background: #AEF1AE'>configValue.matches(&quot;^s3[a|n]?://.+&quot;)</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>244 <span style=''></span><span style='background: #AEF1AE'>          val s3URI = configValue.stripSuffix(&quot;/&quot;) + &quot;/&quot; + trainingJobName
+</span>245 <span style=''></span><span style='background: #AEF1AE'>          S3DataPath.fromS3URI(s3URI)
+</span>246 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''> else </span><span style='background: #AEF1AE'>{
+</span>247 <span style=''></span><span style='background: #AEF1AE'>          val prefix = UUID.randomUUID().toString + &quot;/&quot; + trainingJobName
+</span>248 <span style=''></span><span style='background: #AEF1AE'>          S3DataPath(configValue, prefix)
+</span>249 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>250 <span style=''>      case S3AutoCreatePath() =&gt;
+</span>251 <span style=''>        val account = </span><span style='background: #AEF1AE'>stsClient.getCallerIdentity(new GetCallerIdentityRequest).getAccount</span><span style=''>
+</span>252 <span style=''>        val region = </span><span style='background: #AEF1AE'>s3Client.getRegionName</span><span style=''>
+</span>253 <span style=''>        val bucketName = </span><span style='background: #AEF1AE'>s&quot;$account-sagemaker-$region&quot;</span><span style=''>
+</span>254 <span style=''>        try {
+</span>255 <span style=''>          </span><span style='background: #AEF1AE'>s3Client.createBucket(bucketName)
+</span>256 <span style=''></span><span style='background: #AEF1AE'>          log.info(s&quot;Created bucket $bucketName.&quot;)</span><span style=''>
+</span>257 <span style=''>        } catch {
+</span>258 <span style=''>          case ex : AmazonS3Exception =&gt;
+</span>259 <span style=''>            // This exception is thrown if the S3 client is in us-east-1 but the bucket is not.
+</span>260 <span style=''>            if (</span><span style='background: #AEF1AE'>Option(ex.getErrorCode).getOrElse(&quot;&quot;).contains(&quot;BucketAlreadyOwnedByYou&quot;)</span><span style=''>) {
+</span>261 <span style=''>              </span><span style='background: #F0ADAD'>log.info(s&quot;Using bucket $bucketName, which you already own.&quot;)</span><span style=''>
+</span>262 <span style=''>            } else </span><span style='background: #AEF1AE'>if (Option(ex.getErrorCode).getOrElse(&quot;&quot;)
+</span>263 <span style=''></span><span style='background: #AEF1AE'>              .contains(&quot;AuthorizationHeaderMalformed&quot;)) {
+</span>264 <span style=''></span><span style='background: #AEF1AE'>              </span><span style='background: #F0ADAD'>log.info(s&quot;Bucket $bucketName already exists in a different region, &quot; +
+</span>265 <span style=''></span><span style='background: #F0ADAD'>                s&quot;not ${s3Client.getRegionName}. Attempting to use bucket $bucketName&quot;)</span><span style='background: #AEF1AE'>
+</span>266 <span style=''></span><span style='background: #AEF1AE'>            } else {
+</span>267 <span style=''></span><span style='background: #AEF1AE'>              throw ex
+</span>268 <span style=''></span><span style='background: #AEF1AE'>            }</span><span style=''>
+</span>269 <span style=''>        }
+</span>270 <span style=''>        val prefix = </span><span style='background: #AEF1AE'>UUID.randomUUID().toString + &quot;/&quot; + trainingJobName</span><span style=''>
+</span>271 <span style=''>        </span><span style='background: #AEF1AE'>S3DataPath(bucketName, prefix)</span><span style=''>
+</span>272 <span style=''>    }
+</span>273 <span style=''>  }
+</span>274 <span style=''>
+</span>275 <span style=''>  private[sparksdk] def resolveRoleARN(iAMRoleResource: IAMRoleResource,
+</span>276 <span style=''>                                       config : SparkConf) : IAMRole = {
+</span>277 <span style=''>    iAMRoleResource match {
+</span>278 <span style=''>      case iamRole : IAMRole =&gt; iamRole
+</span>279 <span style=''>      case IAMRoleFromConfig(configKey) =&gt; </span><span style='background: #AEF1AE'>IAMRole(config.get(configKey))</span><span style=''>
+</span>280 <span style=''>    }
+</span>281 <span style=''>  }
+</span>282 <span style=''>
+</span>283 <span style=''>  /**
+</span>284 <span style=''>    * Fits a [[SageMakerModel]] on dataSet by running a SageMaker training job.
+</span>285 <span style=''>    */
+</span>286 <span style=''>  override def fit(dataSet: Dataset[_]): SageMakerModel = {
+</span>287 <span style=''>    </span><span style='background: #AEF1AE'>transformSchema(dataSet.schema, logging = true)</span><span style=''>
+</span>288 <span style=''>    val namePolicy = </span><span style='background: #AEF1AE'>namePolicyFactory.createNamePolicy</span><span style=''>
+</span>289 <span style=''>    val trainingJobName = </span><span style='background: #AEF1AE'>namePolicy.trainingJobName</span><span style=''>
+</span>290 <span style=''>
+</span>291 <span style=''>    val conf = </span><span style='background: #AEF1AE'>dataSet.sparkSession.sparkContext.getConf</span><span style=''>
+</span>292 <span style=''>    val inputPath = </span><span style='background: #AEF1AE'>resolveS3Path(trainingInputS3DataPath, trainingJobName, conf)</span><span style=''>
+</span>293 <span style=''>
+</span>294 <span style=''>    val startingS3UploadTime = </span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis</span><span style=''>
+</span>295 <span style=''>
+</span>296 <span style=''>    val dataUploadResults = </span><span style='background: #AEF1AE'>trainingProjectedColumns</span><span style=''> match {
+</span>297 <span style=''>      case Some(columns) if </span><span style='background: #AEF1AE'>!columns.isEmpty</span><span style=''> =&gt; </span><span style='background: #AEF1AE'>dataUploader.uploadData(inputPath,
+</span>298 <span style=''></span><span style='background: #AEF1AE'>        dataSet.select(columns.head, columns.tail: _*))</span><span style=''>
+</span>299 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>dataUploader.uploadData(inputPath, dataSet)</span><span style=''>
+</span>300 <span style=''>    }
+</span>301 <span style=''>
+</span>302 <span style=''>    val s3UploadTime = </span><span style='background: #AEF1AE'>this.timeProvider.getElapsedTimeInSeconds(startingS3UploadTime)</span><span style=''>
+</span>303 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;S3 Upload Time: $s3UploadTime s&quot;)</span><span style=''>
+</span>304 <span style=''>
+</span>305 <span style=''>    try {
+</span>306 <span style=''>      </span><span style='background: #AEF1AE'>log.info(s&quot;Creating training job with name $trainingJobName&quot;)
+</span>307 <span style=''></span><span style='background: #AEF1AE'>      val createTrainingJobRequest = buildCreateTrainingJobRequest(trainingJobName,
+</span>308 <span style=''></span><span style='background: #AEF1AE'>        dataUploadResults, conf)
+</span>309 <span style=''></span><span style='background: #AEF1AE'>
+</span>310 <span style=''></span><span style='background: #AEF1AE'>      log.info(s&quot;CreateTrainingJobRequest: ${createTrainingJobRequest.toString}&quot;)
+</span>311 <span style=''></span><span style='background: #AEF1AE'>      runTrainingJob(createTrainingJobRequest, trainingJobName)</span><span style=''>
+</span>312 <span style=''>    } finally {
+</span>313 <span style=''>      </span><span style='background: #AEF1AE'>if (deleteStagingDataAfterTraining) {
+</span>314 <span style=''></span><span style='background: #AEF1AE'>        log.info(s&quot;Deleting training data ${inputPath.toS3UriString} of job with&quot; +
+</span>315 <span style=''></span><span style='background: #AEF1AE'>          s&quot; name $trainingJobName&quot;)
+</span>316 <span style=''></span><span style='background: #AEF1AE'>        deleteTrainingData(inputPath)
+</span>317 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>318 <span style=''>    }
+</span>319 <span style=''>
+</span>320 <span style=''>    val describeTrainingJobRequest = </span><span style='background: #AEF1AE'>new DescribeTrainingJobRequest()
+</span>321 <span style=''></span><span style='background: #AEF1AE'>      .withTrainingJobName(trainingJobName)</span><span style=''>
+</span>322 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeTrainingJobRequest)</span><span style=''>
+</span>323 <span style=''>    val modelS3URI = </span><span style='background: #AEF1AE'>sagemakerClient.describeTrainingJob(describeTrainingJobRequest)
+</span>324 <span style=''></span><span style='background: #AEF1AE'>        .getModelArtifacts
+</span>325 <span style=''></span><span style='background: #AEF1AE'>        .getS3ModelArtifacts</span><span style=''>
+</span>326 <span style=''>
+</span>327 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Model S3 URI: $modelS3URI&quot;)</span><span style=''>
+</span>328 <span style=''>    </span><span style='background: #AEF1AE'>new SageMakerModel(
+</span>329 <span style=''></span><span style='background: #AEF1AE'>      Some(endpointInstanceType),
+</span>330 <span style=''></span><span style='background: #AEF1AE'>      Some(endpointInitialInstanceCount),
+</span>331 <span style=''></span><span style='background: #AEF1AE'>      requestRowSerializer,
+</span>332 <span style=''></span><span style='background: #AEF1AE'>      responseRowDeserializer,
+</span>333 <span style=''></span><span style='background: #AEF1AE'>      Option.empty,
+</span>334 <span style=''></span><span style='background: #AEF1AE'>      Some(modelImage),
+</span>335 <span style=''></span><span style='background: #AEF1AE'>      Some(S3DataPath.fromS3URI(modelS3URI)),
+</span>336 <span style=''></span><span style='background: #AEF1AE'>      modelEnvironmentVariables,
+</span>337 <span style=''></span><span style='background: #AEF1AE'>      Some(resolveRoleARN(sagemakerRole, conf).role),
+</span>338 <span style=''></span><span style='background: #AEF1AE'>      endpointCreationPolicy,
+</span>339 <span style=''></span><span style='background: #AEF1AE'>      sagemakerClient,
+</span>340 <span style=''></span><span style='background: #AEF1AE'>      modelPrependInputRowsToTransformationRows,
+</span>341 <span style=''></span><span style='background: #AEF1AE'>      namePolicy,
+</span>342 <span style=''></span><span style='background: #AEF1AE'>      uid)</span><span style=''>
+</span>343 <span style=''>  }
+</span>344 <span style=''>
+</span>345 <span style=''>  private[sparksdk] def buildCreateTrainingJobRequest(trainingJobName: String,
+</span>346 <span style=''>                                                      dataUploadResults: DataUploadResult,
+</span>347 <span style=''>                                                      conf: SparkConf): CreateTrainingJobRequest = {
+</span>348 <span style=''>    val createTrainingJobRequest = </span><span style='background: #AEF1AE'>new CreateTrainingJobRequest()</span><span style=''>
+</span>349 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(createTrainingJobRequest)</span><span style=''>
+</span>350 <span style=''>
+</span>351 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withTrainingJobName(trainingJobName)</span><span style=''>
+</span>352 <span style=''>
+</span>353 <span style=''>    val algorithmSpecification = </span><span style='background: #AEF1AE'>new AlgorithmSpecification()</span><span style=''>
+</span>354 <span style=''>    </span><span style='background: #AEF1AE'>algorithmSpecification.setTrainingImage(trainingImage)</span><span style=''>
+</span>355 <span style=''>    </span><span style='background: #AEF1AE'>algorithmSpecification.setTrainingInputMode(trainingInputMode)</span><span style=''>
+</span>356 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.setAlgorithmSpecification(algorithmSpecification)</span><span style=''>
+</span>357 <span style=''>
+</span>358 <span style=''>    var hyperParameters = </span><span style='background: #AEF1AE'>makeHyperParameters()</span><span style=''>
+</span>359 <span style=''>    if (</span><span style='background: #AEF1AE'>hyperParameters.isEmpty</span><span style=''>) {
+</span>360 <span style=''>      </span><span style='background: #AEF1AE'>hyperParameters = null</span><span style=''>
+</span>361 <span style=''>    }
+</span>362 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withHyperParameters(hyperParameters)</span><span style=''>
+</span>363 <span style=''>    val inputS3Path = </span><span style='background: #AEF1AE'>dataUploadResults.s3DataPath</span><span style=''>
+</span>364 <span style=''>
+</span>365 <span style=''>    val inputDataSource = </span><span style='background: #AEF1AE'>new DataSource()
+</span>366 <span style=''></span><span style='background: #AEF1AE'>      .withS3DataSource(new S3DataSource().withS3Uri(inputS3Path.toS3UriString)
+</span>367 <span style=''></span><span style='background: #AEF1AE'>        .withS3DataType(dataUploadResults match {
+</span>368 <span style=''></span><span style='background: #AEF1AE'>          case ObjectPrefixUploadResult(_) =&gt; S3DataType.S3Prefix.toString
+</span>369 <span style=''></span><span style='background: #AEF1AE'>          case ManifestDataUploadResult(_) =&gt; S3DataType.ManifestFile.toString
+</span>370 <span style=''></span><span style='background: #AEF1AE'>        })
+</span>371 <span style=''></span><span style='background: #AEF1AE'>        .withS3DataDistributionType(trainingS3DataDistribution))</span><span style=''>
+</span>372 <span style=''>
+</span>373 <span style=''>    val inputChannel = </span><span style='background: #AEF1AE'>new Channel()
+</span>374 <span style=''></span><span style='background: #AEF1AE'>      .withChannelName(trainingChannelName)
+</span>375 <span style=''></span><span style='background: #AEF1AE'>      .withCompressionType(trainingCompressionCodec.orNull)
+</span>376 <span style=''></span><span style='background: #AEF1AE'>      .withContentType(trainingContentType.orNull)
+</span>377 <span style=''></span><span style='background: #AEF1AE'>      .withDataSource(inputDataSource)</span><span style=''>
+</span>378 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withInputDataConfig(inputChannel)</span><span style=''>
+</span>379 <span style=''>
+</span>380 <span style=''>    val outputDataConfig = </span><span style='background: #AEF1AE'>new OutputDataConfig()
+</span>381 <span style=''></span><span style='background: #AEF1AE'>      .withS3OutputPath(resolveS3Path(
+</span>382 <span style=''></span><span style='background: #AEF1AE'>        trainingOutputS3DataPath,
+</span>383 <span style=''></span><span style='background: #AEF1AE'>        trainingJobName,
+</span>384 <span style=''></span><span style='background: #AEF1AE'>        conf).toS3UriString)
+</span>385 <span style=''></span><span style='background: #AEF1AE'>      .withKmsKeyId(trainingKmsKeyId.orNull)</span><span style=''>
+</span>386 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withOutputDataConfig(outputDataConfig)</span><span style=''>
+</span>387 <span style=''>
+</span>388 <span style=''>    val resourceConfig = </span><span style='background: #AEF1AE'>new ResourceConfig()
+</span>389 <span style=''></span><span style='background: #AEF1AE'>      .withInstanceCount(trainingInstanceCount)
+</span>390 <span style=''></span><span style='background: #AEF1AE'>      .withInstanceType(trainingInstanceType)
+</span>391 <span style=''></span><span style='background: #AEF1AE'>      .withVolumeSizeInGB(trainingInstanceVolumeSizeInGB)</span><span style=''>
+</span>392 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withResourceConfig(resourceConfig)</span><span style=''>
+</span>393 <span style=''>
+</span>394 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withRoleArn(resolveRoleARN(sagemakerRole, conf).role)</span><span style=''>
+</span>395 <span style=''>
+</span>396 <span style=''>    val stoppingCondition = </span><span style='background: #AEF1AE'>new StoppingCondition()
+</span>397 <span style=''></span><span style='background: #AEF1AE'>      .withMaxRuntimeInSeconds(trainingMaxRuntimeInSeconds)</span><span style=''>
+</span>398 <span style=''>    </span><span style='background: #AEF1AE'>createTrainingJobRequest.withStoppingCondition(stoppingCondition)</span><span style=''>
+</span>399 <span style=''>
+</span>400 <span style=''>    createTrainingJobRequest
+</span>401 <span style=''>  }
+</span>402 <span style=''>
+</span>403 <span style=''>  private def runTrainingJob(createTrainingJobRequest: CreateTrainingJobRequest,
+</span>404 <span style=''>                             trainingJobName: String): Unit = {
+</span>405 <span style=''>    val startingTrainingJobTime = </span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis</span><span style=''>
+</span>406 <span style=''>
+</span>407 <span style=''>    try {
+</span>408 <span style=''>      </span><span style='background: #AEF1AE'>sagemakerClient.createTrainingJob(createTrainingJobRequest)
+</span>409 <span style=''></span><span style='background: #AEF1AE'>      awaitTrainingCompletion(trainingJobName)</span><span style=''>
+</span>410 <span style=''>    } catch {
+</span>411 <span style=''>      case t: Throwable =&gt; </span><span style='background: #AEF1AE'>throw new RuntimeException(&quot;Training job couldn't be completed.&quot;, t)</span><span style=''>
+</span>412 <span style=''>    } finally </span><span style='background: #AEF1AE'>{
+</span>413 <span style=''></span><span style='background: #AEF1AE'>      val trainingJobTime = this.timeProvider.getElapsedTimeInSeconds(startingTrainingJobTime)
+</span>414 <span style=''></span><span style='background: #AEF1AE'>      log.info(s&quot;Training Job Time: $trainingJobTime s&quot;)
+</span>415 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>416 <span style=''>  }
+</span>417 <span style=''>
+</span>418 <span style=''>  private def awaitTrainingCompletion(trainingJobName : String) : Unit = {
+</span>419 <span style=''>    val startTime = </span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis</span><span style=''>
+</span>420 <span style=''>    val describeTrainingJobRequest = </span><span style='background: #AEF1AE'>new DescribeTrainingJobRequest()
+</span>421 <span style=''></span><span style='background: #AEF1AE'>      .withTrainingJobName(trainingJobName)</span><span style=''>
+</span>422 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeTrainingJobRequest)</span><span style=''>
+</span>423 <span style=''>
+</span>424 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Begin waiting for training job $trainingJobName&quot;)</span><span style=''>
+</span>425 <span style=''>    while (</span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis - startTime &lt; trainingJobTimeout.toMillis</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>426 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>427 <span style=''></span><span style='background: #AEF1AE'>        val response = sagemakerClient.describeTrainingJob(describeTrainingJobRequest)
+</span>428 <span style=''></span><span style='background: #AEF1AE'>        val currentStatus = TrainingJobStatus.fromValue(response.getTrainingJobStatus)
+</span>429 <span style=''></span><span style='background: #AEF1AE'>        log.info(s&quot;Training job status: $currentStatus&quot;)
+</span>430 <span style=''></span><span style='background: #AEF1AE'>        currentStatus match {
+</span>431 <span style=''></span><span style='background: #AEF1AE'>          case TrainingJobStatus.Completed =&gt; return
+</span>432 <span style=''></span><span style='background: #AEF1AE'>          case TrainingJobStatus.Failed =&gt;
+</span>433 <span style=''></span><span style='background: #AEF1AE'>            val message = s&quot;Training job '$trainingJobName' failed for reason:&quot; +
+</span>434 <span style=''></span><span style='background: #AEF1AE'>              s&quot; '${response.getFailureReason}'&quot;
+</span>435 <span style=''></span><span style='background: #AEF1AE'>            throw new RuntimeException(message)
+</span>436 <span style=''></span><span style='background: #AEF1AE'>          case TrainingJobStatus.Stopped =&gt;
+</span>437 <span style=''></span><span style='background: #AEF1AE'>            val message = </span><span style='background: #F0ADAD'>s&quot;Training job '$trainingJobName' stopped. Stopping condition:&quot; +
+</span>438 <span style=''></span><span style='background: #F0ADAD'>              s&quot; '${response.getStoppingCondition}'&quot;</span><span style='background: #AEF1AE'>
+</span>439 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>throw new RuntimeException(message)</span><span style='background: #AEF1AE'>
+</span>440 <span style=''></span><span style='background: #AEF1AE'>          case _ =&gt; // for any other statuses, continue polling
+</span>441 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>442 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>443 <span style=''></span><span style='background: #AEF1AE'>        case e : SdkBaseException =&gt;
+</span>444 <span style=''></span><span style='background: #AEF1AE'>          if (!RetryUtils.isRetryableServiceException(e)) {
+</span>445 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>throw e</span><span style='background: #AEF1AE'>
+</span>446 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>447 <span style=''></span><span style='background: #AEF1AE'>          log.warn(s&quot;Retryable exception: ${e.getMessage}&quot;, e)
+</span>448 <span style=''></span><span style='background: #AEF1AE'>        case t : Throwable =&gt; throw t
+</span>449 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>450 <span style=''></span><span style='background: #AEF1AE'>      timeProvider.sleep(SageMakerEstimator.TrainingJobPollInterval.toMillis)
+</span>451 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>452 <span style=''>    </span><span style='background: #AEF1AE'>throw new RuntimeException(s&quot;Timed out after ${trainingJobTimeout.toString} while waiting for&quot; +
+</span>453 <span style=''></span><span style='background: #AEF1AE'>      s&quot; Training Job '$trainingJobName' to finish creating.&quot;)</span><span style=''>
+</span>454 <span style=''>  }
+</span>455 <span style=''>
+</span>456 <span style=''>  private def deleteTrainingData(s3DataPath: S3DataPath) : Unit = {
+</span>457 <span style=''>    val s3Bucket = </span><span style='background: #AEF1AE'>s3DataPath.bucket</span><span style=''>
+</span>458 <span style=''>    val s3Prefix = </span><span style='background: #AEF1AE'>s3DataPath.objectPath</span><span style=''>
+</span>459 <span style=''>
+</span>460 <span style=''>    try {
+</span>461 <span style=''>      </span><span style='background: #AEF1AE'>val objectList = s3Client.listObjects(s3Bucket, s3Prefix)
+</span>462 <span style=''></span><span style='background: #AEF1AE'>      for (s3Object &lt;- objectList.getObjectSummaries) {
+</span>463 <span style=''></span><span style='background: #AEF1AE'>        s3Client.deleteObject(s3Bucket, s3Object.getKey)
+</span>464 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>465 <span style=''></span><span style='background: #AEF1AE'>      s3Client.deleteObject(s3Bucket, s3Prefix)</span><span style=''>
+</span>466 <span style=''>    } catch {
+</span>467 <span style=''>      case t: Throwable =&gt; </span><span style='background: #AEF1AE'>log.warn(s&quot;Received exception from s3 client. Data deletion failed. &quot; +
+</span>468 <span style=''></span><span style='background: #AEF1AE'>        s&quot;Stack trace: ${t.getStackTrace}&quot;)</span><span style=''>
+</span>469 <span style=''>    }
+</span>470 <span style=''>  }
+</span>471 <span style=''>
+</span>472 <span style=''>  override def copy(extra: ParamMap): SageMakerEstimator = </span><span style='background: #F0ADAD'>defaultCopy(extra)</span><span style=''>
+</span>473 <span style=''>
+</span>474 <span style=''>  @DeveloperApi
+</span>475 <span style=''>  override def transformSchema(schema: StructType): StructType = schema
+</span>476 <span style=''>
+</span>477 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          2476
+          -
+          2481
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Enumeration.Value
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.this.Value
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          2476
+          -
+          2476
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Enumeration.Value
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.this.Value
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          2476
+          -
+          2476
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Enumeration.Value
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.this.Value
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          2545
+          -
+          2566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.ofSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          java.time.Duration.ofSeconds(5L)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          13782
+          -
+          13804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.SystemTimeProvider.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.sparksdk.internal.SystemTimeProvider()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          13875
+          -
+          13898
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingSparkDataFormat
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingSparkDataFormat
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          13858
+          -
+          13935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader(SageMakerEstimator.this.trainingSparkDataFormat, SageMakerEstimator.this.trainingSparkDataFormatOptions)
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          13904
+          -
+          13934
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingSparkDataFormatOptions
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingSparkDataFormatOptions
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          13999
+          -
+          14026
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingMaxRuntimeInSeconds.toLong
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          13982
+          -
+          14027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.ofHours
+        </td>
+        <td style="background: #AEF1AE">
+          java.time.Duration.ofHours(SageMakerEstimator.this.trainingMaxRuntimeInSeconds.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          14406
+          -
+          14421
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.collection.convert.WrapAsJava.mapAsJavaMap
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConversions.mapAsJavaMap[String, String](SageMakerEstimator.this.hyperParameters)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          14406
+          -
+          14421
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.hyperParameters
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.hyperParameters
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          14384
+          -
+          14422
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.HashMap.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.util.HashMap[String,String](scala.collection.JavaConversions.mapAsJavaMap[String, String](SageMakerEstimator.this.hyperParameters))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          14427
+          -
+          14540
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[org.apache.spark.ml.param.Param[_]](scala.this.Predef.refArrayOps[org.apache.spark.ml.param.Param[_]](SageMakerEstimator.this.params).filter(((p: org.apache.spark.ml.param.Param[_]) =&gt; SageMakerEstimator.this.hasDefault[_$1](p).||(SageMakerEstimator.this.isSet(p))))).map[(String, String), Array[(String, String)]](((x0$1: org.apache.spark.ml.param.Param[_]) =&gt; x0$1 match {
+  case (p @ _) =&gt; scala.Tuple2.apply[String, String](p.name, this.getOrDefault[_$1](p).toString())
+}))(scala.this.Array.canBuildFrom[(String, String)]((ClassTag.apply[(String, String)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(String, String)])))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          14446
+          -
+          14471
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.hasDefault[_$1](p).||(SageMakerEstimator.this.isSet(p))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          14463
+          -
+          14471
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.isSet
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.isSet(p)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          14473
+          -
+          14473
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(String, String)]((ClassTag.apply[(String, String)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(String, String)]))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          14427
+          -
+          14472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[org.apache.spark.ml.param.Param[_]](SageMakerEstimator.this.params).filter(((p: org.apache.spark.ml.param.Param[_]) =&gt; SageMakerEstimator.this.hasDefault[_$1](p).||(SageMakerEstimator.this.isSet(p))))
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          14504
+          -
+          14533
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #AEF1AE">
+          this.getOrDefault[_$1](p).toString()
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          14496
+          -
+          14502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.ml.param.Param.name
+        </td>
+        <td style="background: #AEF1AE">
+          p.name
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          14495
+          -
+          14534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](p.name, this.getOrDefault[_$1](p).toString())
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          14427
+          -
+          14626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[(String, String)](scala.this.Predef.refArrayOps[org.apache.spark.ml.param.Param[_]](scala.this.Predef.refArrayOps[org.apache.spark.ml.param.Param[_]](SageMakerEstimator.this.params).filter(((p: org.apache.spark.ml.param.Param[_]) =&gt; SageMakerEstimator.this.hasDefault[_$1](p).||(SageMakerEstimator.this.isSet(p))))).map[(String, String), Array[(String, String)]](((x0$1: org.apache.spark.ml.param.Param[_]) =&gt; x0$1 match {
+  case (p @ _) =&gt; scala.Tuple2.apply[String, String](p.name, this.getOrDefault[_$1](p).toString())
+}))(scala.this.Array.canBuildFrom[(String, String)]((ClassTag.apply[(String, String)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(String, String)])))).foreach[String](((x0$2: (String, String)) =&gt; x0$2 match {
+  case (_1: String, _2: String)(String, String)((key @ _), (value @ _)) =&gt; trainingJobHyperParameters.put(key, value)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          14578
+          -
+          14620
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.put
+        </td>
+        <td style="background: #AEF1AE">
+          trainingJobHyperParameters.put(key, value)
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          14910
+          -
+          14927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.bucket
+        </td>
+        <td style="background: #AEF1AE">
+          s3DataPath.bucket
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          14895
+          -
+          14975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new S3DataPath(s3DataPath.bucket, s3DataPath.objectPath.+(&quot;/&quot;).+(trainingJobName))
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          14929
+          -
+          14974
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          s3DataPath.objectPath.+(&quot;/&quot;).+(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          15044
+          -
+          15065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.SparkConf.get
+        </td>
+        <td style="background: #AEF1AE">
+          config.get(configKey)
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          15077
+          -
+          15114
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.matches
+        </td>
+        <td style="background: #AEF1AE">
+          configValue.matches(&quot;^s3[a|n]?://.+&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          15116
+          -
+          15240
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val s3URI: String = scala.this.Predef.augmentString(configValue).stripSuffix(&quot;/&quot;).+(&quot;/&quot;).+(trainingJobName);
+  S3DataPath.fromS3URI(s3URI)
+}
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          15140
+          -
+          15192
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(configValue).stripSuffix(&quot;/&quot;).+(&quot;/&quot;).+(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          15203
+          -
+          15230
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.fromS3URI
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.fromS3URI(s3URI)
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          15246
+          -
+          15373
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val prefix: String = java.util.UUID.randomUUID().toString().+(&quot;/&quot;).+(trainingJobName);
+  S3DataPath.apply(configValue, prefix)
+}
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          15271
+          -
+          15321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.UUID.randomUUID().toString().+(&quot;/&quot;).+(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          15332
+          -
+          15363
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.apply(configValue, prefix)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          15429
+          -
+          15497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.securitytoken.model.GetCallerIdentityResult.getAccount
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.stsClient.getCallerIdentity(new com.amazonaws.services.securitytoken.model.GetCallerIdentityRequest()).getAccount()
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          15519
+          -
+          15541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.AmazonS3.getRegionName
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.s3Client.getRegionName()
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          15567
+          -
+          15596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;-sagemaker-&quot;, &quot;&quot;).s(account, region)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          15621
+          -
+          15705
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SageMakerEstimator.this.s3Client.createBucket(bucketName);
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Created bucket &quot;, &quot;.&quot;).s(bucketName))
+}
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          15621
+          -
+          15654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.AmazonS3.createBucket
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.s3Client.createBucket(bucketName)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          15674
+          -
+          15704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Created bucket &quot;, &quot;.&quot;).s(bucketName)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          15665
+          -
+          15705
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Created bucket &quot;, &quot;.&quot;).s(bucketName))
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          15877
+          -
+          15950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.contains
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[String](ex.getErrorCode()).getOrElse[String](&quot;&quot;).contains(&quot;BucketAlreadyOwnedByYou&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          15968
+          -
+          16029
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Using bucket &quot;, &quot;, which you already own.&quot;).s(bucketName))
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          15968
+          -
+          16029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Using bucket &quot;, &quot;, which you already own.&quot;).s(bucketName))
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          15977
+          -
+          16028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Using bucket &quot;, &quot;, which you already own.&quot;).s(bucketName)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          16049
+          -
+          16381
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          if (scala.Option.apply[String](ex.getErrorCode()).getOrElse[String](&quot;&quot;).contains(&quot;AuthorizationHeaderMalformed&quot;))
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Bucket &quot;, &quot; already exists in a different region, &quot;).s(bucketName).+(scala.StringContext.apply(&quot;not &quot;, &quot;. Attempting to use bucket &quot;, &quot;&quot;).s(SageMakerEstimator.this.s3Client.getRegionName(), bucketName)))
+else
+  throw ex
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          16053
+          -
+          16146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.contains
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[String](ex.getErrorCode()).getOrElse[String](&quot;&quot;).contains(&quot;AuthorizationHeaderMalformed&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          16173
+          -
+          16322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Bucket &quot;, &quot; already exists in a different region, &quot;).s(bucketName).+(scala.StringContext.apply(&quot;not &quot;, &quot;. Attempting to use bucket &quot;, &quot;&quot;).s(SageMakerEstimator.this.s3Client.getRegionName(), bucketName))
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          16193
+          -
+          16233
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; already exists in a different region, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          16164
+          -
+          16323
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Bucket &quot;, &quot; already exists in a different region, &quot;).s(bucketName).+(scala.StringContext.apply(&quot;not &quot;, &quot;. Attempting to use bucket &quot;, &quot;&quot;).s(SageMakerEstimator.this.s3Client.getRegionName(), bucketName)))
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          16175
+          -
+          16183
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Bucket &quot;
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          16164
+          -
+          16323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Bucket &quot;, &quot; already exists in a different region, &quot;).s(bucketName).+(scala.StringContext.apply(&quot;not &quot;, &quot;. Attempting to use bucket &quot;, &quot;&quot;).s(SageMakerEstimator.this.s3Client.getRegionName(), bucketName)))
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          16321
+          -
+          16322
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          16283
+          -
+          16311
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;. Attempting to use bucket &quot;
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          16252
+          -
+          16322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;not &quot;, &quot;. Attempting to use bucket &quot;, &quot;&quot;).s(SageMakerEstimator.this.s3Client.getRegionName(), bucketName)
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          16254
+          -
+          16259
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;not &quot;
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          16260
+          -
+          16282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.AmazonS3.getRegionName
+        </td>
+        <td style="background: #F0ADAD">
+          SageMakerEstimator.this.s3Client.getRegionName()
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          16359
+          -
+          16367
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw ex
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          16359
+          -
+          16367
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw ex
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          16413
+          -
+          16463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.UUID.randomUUID().toString().+(&quot;/&quot;).+(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          16472
+          -
+          16502
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.apply
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.apply(bucketName, prefix)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          16771
+          -
+          16801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.IAMRole.apply
+        </td>
+        <td style="background: #AEF1AE">
+          IAMRole.apply(config.get(configKey))
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          16779
+          -
+          16800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.SparkConf.get
+        </td>
+        <td style="background: #AEF1AE">
+          config.get(configKey)
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          16970
+          -
+          17017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.PipelineStage.transformSchema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.transformSchema(dataSet.schema, true)
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          17012
+          -
+          17016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          16986
+          -
+          17000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.schema
+        </td>
+        <td style="background: #AEF1AE">
+          dataSet.schema
+        </td>
+      </tr><tr>
+        <td>
+          288
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          17039
+          -
+          17073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.NamePolicyFactory.createNamePolicy
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.namePolicyFactory.createNamePolicy
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          17100
+          -
+          17126
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.NamePolicy.trainingJobName
+        </td>
+        <td style="background: #AEF1AE">
+          namePolicy.trainingJobName
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          17143
+          -
+          17184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.SparkContext.getConf
+        </td>
+        <td style="background: #AEF1AE">
+          dataSet.sparkSession.sparkContext.getConf
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          17205
+          -
+          17266
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.resolveS3Path
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.resolveS3Path(SageMakerEstimator.this.trainingInputS3DataPath, trainingJobName, conf)
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          17219
+          -
+          17242
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingInputS3DataPath
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingInputS3DataPath
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          17299
+          -
+          17334
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.currentTimeMillis
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          17364
+          -
+          17388
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingProjectedColumns
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingProjectedColumns
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          17445
+          -
+          17535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.uploadData
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.dataUploader.uploadData(inputPath, dataSet.select(columns.head, (columns.tail: _*)))
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          17425
+          -
+          17441
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          columns.isEmpty.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          17503
+          -
+          17515
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #AEF1AE">
+          columns.head
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          17488
+          -
+          17534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td style="background: #AEF1AE">
+          dataSet.select(columns.head, (columns.tail: _*))
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          17517
+          -
+          17529
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.tail
+        </td>
+        <td style="background: #AEF1AE">
+          columns.tail
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          17552
+          -
+          17595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploader.uploadData
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.dataUploader.uploadData(inputPath, dataSet)
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          17626
+          -
+          17689
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.getElapsedTimeInSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.getElapsedTimeInSeconds(startingS3UploadTime)
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          17703
+          -
+          17737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;S3 Upload Time: &quot;, &quot; s&quot;).s(s3UploadTime)
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          17694
+          -
+          17738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;S3 Upload Time: &quot;, &quot; s&quot;).s(s3UploadTime))
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          17756
+          -
+          18081
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Creating training job with name &quot;, &quot;&quot;).s(trainingJobName));
+  val createTrainingJobRequest: com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest = SageMakerEstimator.this.buildCreateTrainingJobRequest(trainingJobName, dataUploadResults, conf);
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;CreateTrainingJobRequest: &quot;, &quot;&quot;).s(createTrainingJobRequest.toString()));
+  SageMakerEstimator.this.runTrainingJob(createTrainingJobRequest, trainingJobName)
+}
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          17756
+          -
+          17817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Creating training job with name &quot;, &quot;&quot;).s(trainingJobName))
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          17765
+          -
+          17816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Creating training job with name &quot;, &quot;&quot;).s(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          307
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          17855
+          -
+          17934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.buildCreateTrainingJobRequest
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.buildCreateTrainingJobRequest(trainingJobName, dataUploadResults, conf)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          18015
+          -
+          18016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          17942
+          -
+          18017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;CreateTrainingJobRequest: &quot;, &quot;&quot;).s(createTrainingJobRequest.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          17953
+          -
+          17980
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;CreateTrainingJobRequest: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          17951
+          -
+          18016
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;CreateTrainingJobRequest: &quot;, &quot;&quot;).s(createTrainingJobRequest.toString())
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          17981
+          -
+          18014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.toString
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.toString()
+        </td>
+      </tr><tr>
+        <td>
+          311
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          18024
+          -
+          18081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.runTrainingJob
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.runTrainingJob(createTrainingJobRequest, trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          18140
+          -
+          18308
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Deleting training data &quot;, &quot; of job with&quot;).s(inputPath.toS3UriString).+(scala.StringContext.apply(&quot; name &quot;, &quot;&quot;).s(trainingJobName)));
+  SageMakerEstimator.this.deleteTrainingData(inputPath)
+}
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          18104
+          -
+          18308
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          if (SageMakerEstimator.this.deleteStagingDataAfterTraining)
+  {
+    SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Deleting training data &quot;, &quot; of job with&quot;).s(inputPath.toS3UriString).+(scala.StringContext.apply(&quot; name &quot;, &quot;&quot;).s(trainingJobName)));
+    SageMakerEstimator.this.deleteTrainingData(inputPath)
+  }
+else
+  ()
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          18104
+          -
+          18104
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          18104
+          -
+          18104
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          18108
+          -
+          18138
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.deleteStagingDataAfterTraining
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.deleteStagingDataAfterTraining
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          18186
+          -
+          18209
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.toS3UriString
+        </td>
+        <td style="background: #AEF1AE">
+          inputPath.toS3UriString
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          18150
+          -
+          18262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Deleting training data &quot;, &quot; of job with&quot;).s(inputPath.toS3UriString).+(scala.StringContext.apply(&quot; name &quot;, &quot;&quot;).s(trainingJobName)))
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          18210
+          -
+          18223
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; of job with&quot;
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          18159
+          -
+          18261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Deleting training data &quot;, &quot; of job with&quot;).s(inputPath.toS3UriString).+(scala.StringContext.apply(&quot; name &quot;, &quot;&quot;).s(trainingJobName))
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          18161
+          -
+          18185
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Deleting training data &quot;
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          18236
+          -
+          18261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot; name &quot;, &quot;&quot;).s(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          18271
+          -
+          18300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.deleteTrainingData
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.deleteTrainingData(inputPath)
+        </td>
+      </tr><tr>
+        <td>
+          321
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          18353
+          -
+          18429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobRequest.withTrainingJobName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeTrainingJobRequest().withTrainingJobName(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          322
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          18434
+          -
+          18490
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          325
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          18512
+          -
+          18631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.ModelArtifacts.getS3ModelArtifacts
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.sagemakerClient.describeTrainingJob(describeTrainingJobRequest).getModelArtifacts().getS3ModelArtifacts()
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          18646
+          -
+          18674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Model S3 URI: &quot;, &quot;&quot;).s(modelS3URI)
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          18637
+          -
+          18675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Model S3 URI: &quot;, &quot;&quot;).s(modelS3URI))
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          18680
+          -
+          19142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new SageMakerModel(scala.Some.apply[String](SageMakerEstimator.this.endpointInstanceType), scala.Some.apply[Int](SageMakerEstimator.this.endpointInitialInstanceCount), SageMakerEstimator.this.requestRowSerializer, SageMakerEstimator.this.responseRowDeserializer, scala.Option.empty[Nothing], scala.Some.apply[String](SageMakerEstimator.this.modelImage), scala.Some.apply[com.amazonaws.services.sagemaker.sparksdk.S3DataPath](S3DataPath.fromS3URI(modelS3URI)), SageMakerEstimator.this.modelEnvironmentVariables, scala.Some.apply[String](SageMakerEstimator.this.resolveRoleARN(SageMakerEstimator.this.sagemakerRole, conf).role), SageMakerEstimator.this.endpointCreationPolicy, SageMakerEstimator.this.sagemakerClient, SageMakerEstimator.this.modelPrependInputRowsToTransformationRows, namePolicy, SageMakerEstimator.this.uid)
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          18711
+          -
+          18731
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.endpointInstanceType
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.endpointInstanceType
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          18706
+          -
+          18732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](SageMakerEstimator.this.endpointInstanceType)
+        </td>
+      </tr><tr>
+        <td>
+          330
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          18740
+          -
+          18774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Int](SageMakerEstimator.this.endpointInitialInstanceCount)
+        </td>
+      </tr><tr>
+        <td>
+          330
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          18745
+          -
+          18773
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.endpointInitialInstanceCount
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.endpointInitialInstanceCount
+        </td>
+      </tr><tr>
+        <td>
+          331
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          18782
+          -
+          18802
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.requestRowSerializer
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.requestRowSerializer
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          18810
+          -
+          18833
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.responseRowDeserializer
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.responseRowDeserializer
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          18841
+          -
+          18853
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Option.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          18866
+          -
+          18876
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.modelImage
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.modelImage
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          18861
+          -
+          18877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](SageMakerEstimator.this.modelImage)
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          18890
+          -
+          18922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.fromS3URI
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.fromS3URI(modelS3URI)
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          18885
+          -
+          18923
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.amazonaws.services.sagemaker.sparksdk.S3DataPath](S3DataPath.fromS3URI(modelS3URI))
+        </td>
+      </tr><tr>
+        <td>
+          336
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          18931
+          -
+          18956
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.modelEnvironmentVariables
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.modelEnvironmentVariables
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          18969
+          -
+          19009
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.IAMRole.role
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.resolveRoleARN(SageMakerEstimator.this.sagemakerRole, conf).role
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          18984
+          -
+          18997
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.sagemakerRole
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.sagemakerRole
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          18964
+          -
+          19010
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](SageMakerEstimator.this.resolveRoleARN(SageMakerEstimator.this.sagemakerRole, conf).role)
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          19018
+          -
+          19040
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.endpointCreationPolicy
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.endpointCreationPolicy
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          19048
+          -
+          19063
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.sagemakerClient
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.sagemakerClient
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          19071
+          -
+          19112
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.modelPrependInputRowsToTransformationRows
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.modelPrependInputRowsToTransformationRows
+        </td>
+      </tr><tr>
+        <td>
+          342
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          19138
+          -
+          19141
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.uid
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.uid
+        </td>
+      </tr><tr>
+        <td>
+          348
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          19454
+          -
+          19484
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest()
+        </td>
+      </tr><tr>
+        <td>
+          349
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          19489
+          -
+          19543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(createTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          19549
+          -
+          19610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withTrainingJobName
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withTrainingJobName(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          19645
+          -
+          19673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.AlgorithmSpecification.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.AlgorithmSpecification()
+        </td>
+      </tr><tr>
+        <td>
+          354
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          19678
+          -
+          19732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.AlgorithmSpecification.setTrainingImage
+        </td>
+        <td style="background: #AEF1AE">
+          algorithmSpecification.setTrainingImage(SageMakerEstimator.this.trainingImage)
+        </td>
+      </tr><tr>
+        <td>
+          354
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          19718
+          -
+          19731
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingImage
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingImage
+        </td>
+      </tr><tr>
+        <td>
+          355
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          19737
+          -
+          19799
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.AlgorithmSpecification.setTrainingInputMode
+        </td>
+        <td style="background: #AEF1AE">
+          algorithmSpecification.setTrainingInputMode(SageMakerEstimator.this.trainingInputMode)
+        </td>
+      </tr><tr>
+        <td>
+          355
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          19781
+          -
+          19798
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingInputMode
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingInputMode
+        </td>
+      </tr><tr>
+        <td>
+          356
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          19804
+          -
+          19878
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.setAlgorithmSpecification
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.setAlgorithmSpecification(algorithmSpecification)
+        </td>
+      </tr><tr>
+        <td>
+          358
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          19906
+          -
+          19927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.makeHyperParameters
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.makeHyperParameters()
+        </td>
+      </tr><tr>
+        <td>
+          359
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          19932
+          -
+          19932
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          359
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          19932
+          -
+          19932
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          359
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          19936
+          -
+          19959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          hyperParameters.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          360
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          19987
+          -
+          19991
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          360
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          19969
+          -
+          19991
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          hyperParameters = null
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          20002
+          -
+          20063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withHyperParameters
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withHyperParameters(hyperParameters)
+        </td>
+      </tr><tr>
+        <td>
+          363
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          20086
+          -
+          20114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.DataUploadResult.s3DataPath
+        </td>
+        <td style="background: #AEF1AE">
+          dataUploadResults.s3DataPath
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          20142
+          -
+          20518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DataSource.withS3DataSource
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DataSource().withS3DataSource(new com.amazonaws.services.sagemaker.model.S3DataSource().withS3Uri(inputS3Path.toS3UriString).withS3DataType(dataUploadResults match {
+  case (s3DataPath: com.amazonaws.services.sagemaker.sparksdk.S3DataPath)com.amazonaws.services.sagemaker.sparksdk.internal.ObjectPrefixUploadResult(_) =&gt; S3Prefix.toString()
+  case (s3DataPath: com.amazonaws.services.sagemaker.sparksdk.S3DataPath)com.amazonaws.services.sagemaker.sparksdk.internal.ManifestDataUploadResult(_) =&gt; ManifestFile.toString()
+}).withS3DataDistributionType(SageMakerEstimator.this.trainingS3DataDistribution))
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          20212
+          -
+          20237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.toS3UriString
+        </td>
+        <td style="background: #AEF1AE">
+          inputS3Path.toS3UriString
+        </td>
+      </tr><tr>
+        <td>
+          368
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          20335
+          -
+          20363
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.S3DataType.toString
+        </td>
+        <td style="background: #AEF1AE">
+          S3Prefix.toString()
+        </td>
+      </tr><tr>
+        <td>
+          369
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          20410
+          -
+          20442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.S3DataType.toString
+        </td>
+        <td style="background: #AEF1AE">
+          ManifestFile.toString()
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          20490
+          -
+          20516
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingS3DataDistribution
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingS3DataDistribution
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          20183
+          -
+          20517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.S3DataSource.withS3DataDistributionType
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.S3DataSource().withS3Uri(inputS3Path.toS3UriString).withS3DataType(dataUploadResults match {
+  case (s3DataPath: com.amazonaws.services.sagemaker.sparksdk.S3DataPath)com.amazonaws.services.sagemaker.sparksdk.internal.ObjectPrefixUploadResult(_) =&gt; S3Prefix.toString()
+  case (s3DataPath: com.amazonaws.services.sagemaker.sparksdk.S3DataPath)com.amazonaws.services.sagemaker.sparksdk.internal.ManifestDataUploadResult(_) =&gt; ManifestFile.toString()
+}).withS3DataDistributionType(SageMakerEstimator.this.trainingS3DataDistribution)
+        </td>
+      </tr><tr>
+        <td>
+          377
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          20543
+          -
+          20750
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.Channel.withDataSource
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.Channel().withChannelName(SageMakerEstimator.this.trainingChannelName).withCompressionType(SageMakerEstimator.this.trainingCompressionCodec.orNull[String](scala.this.Predef.$conforms[Null])).withContentType(SageMakerEstimator.this.trainingContentType.orNull[String](scala.this.Predef.$conforms[Null])).withDataSource(inputDataSource)
+        </td>
+      </tr><tr>
+        <td>
+          378
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          20755
+          -
+          20813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withInputDataConfig
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withInputDataConfig(inputChannel)
+        </td>
+      </tr><tr>
+        <td>
+          382
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          20912
+          -
+          20936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingOutputS3DataPath
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingOutputS3DataPath
+        </td>
+      </tr><tr>
+        <td>
+          384
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          20889
+          -
+          20990
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.toS3UriString
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.resolveS3Path(SageMakerEstimator.this.trainingOutputS3DataPath, trainingJobName, conf).toS3UriString
+        </td>
+      </tr><tr>
+        <td>
+          385
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          20842
+          -
+          21036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.OutputDataConfig.withKmsKeyId
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.OutputDataConfig().withS3OutputPath(SageMakerEstimator.this.resolveS3Path(SageMakerEstimator.this.trainingOutputS3DataPath, trainingJobName, conf).toS3UriString).withKmsKeyId(SageMakerEstimator.this.trainingKmsKeyId.orNull[String](scala.this.Predef.$conforms[Null]))
+        </td>
+      </tr><tr>
+        <td>
+          385
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          21012
+          -
+          21035
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Option.orNull
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingKmsKeyId.orNull[String](scala.this.Predef.$conforms[Null])
+        </td>
+      </tr><tr>
+        <td>
+          385
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          21029
+          -
+          21029
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[Null]
+        </td>
+      </tr><tr>
+        <td>
+          386
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          21041
+          -
+          21104
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withOutputDataConfig
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withOutputDataConfig(outputDataConfig)
+        </td>
+      </tr><tr>
+        <td>
+          389
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          21177
+          -
+          21198
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingInstanceCount
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingInstanceCount
+        </td>
+      </tr><tr>
+        <td>
+          389
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          21177
+          -
+          21198
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.int2Integer(SageMakerEstimator.this.trainingInstanceCount)
+        </td>
+      </tr><tr>
+        <td>
+          390
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          21224
+          -
+          21244
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingInstanceType
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingInstanceType
+        </td>
+      </tr><tr>
+        <td>
+          391
+        </td>
+        <td>
+          214
+        </td>
+        <td>
+          21272
+          -
+          21302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingInstanceVolumeSizeInGB
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingInstanceVolumeSizeInGB
+        </td>
+      </tr><tr>
+        <td>
+          391
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          21131
+          -
+          21303
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.ResourceConfig.withVolumeSizeInGB
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.ResourceConfig().withInstanceCount(scala.this.Predef.int2Integer(SageMakerEstimator.this.trainingInstanceCount)).withInstanceType(SageMakerEstimator.this.trainingInstanceType).withVolumeSizeInGB(scala.this.Predef.int2Integer(SageMakerEstimator.this.trainingInstanceVolumeSizeInGB))
+        </td>
+      </tr><tr>
+        <td>
+          391
+        </td>
+        <td>
+          215
+        </td>
+        <td>
+          21272
+          -
+          21302
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.int2Integer(SageMakerEstimator.this.trainingInstanceVolumeSizeInGB)
+        </td>
+      </tr><tr>
+        <td>
+          392
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          21308
+          -
+          21367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withResourceConfig
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withResourceConfig(resourceConfig)
+        </td>
+      </tr><tr>
+        <td>
+          394
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          21425
+          -
+          21438
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.sagemakerRole
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.sagemakerRole
+        </td>
+      </tr><tr>
+        <td>
+          394
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          21373
+          -
+          21451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withRoleArn
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withRoleArn(SageMakerEstimator.this.resolveRoleARN(SageMakerEstimator.this.sagemakerRole, conf).role)
+        </td>
+      </tr><tr>
+        <td>
+          394
+        </td>
+        <td>
+          219
+        </td>
+        <td>
+          21410
+          -
+          21450
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.IAMRole.role
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.resolveRoleARN(SageMakerEstimator.this.sagemakerRole, conf).role
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          223
+        </td>
+        <td>
+          21481
+          -
+          21564
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.StoppingCondition.withMaxRuntimeInSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.StoppingCondition().withMaxRuntimeInSeconds(scala.this.Predef.int2Integer(SageMakerEstimator.this.trainingMaxRuntimeInSeconds))
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          222
+        </td>
+        <td>
+          21536
+          -
+          21563
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.int2Integer(SageMakerEstimator.this.trainingMaxRuntimeInSeconds)
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          221
+        </td>
+        <td>
+          21536
+          -
+          21563
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.trainingMaxRuntimeInSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingMaxRuntimeInSeconds
+        </td>
+      </tr><tr>
+        <td>
+          398
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          21569
+          -
+          21634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateTrainingJobRequest.withStoppingCondition
+        </td>
+        <td style="background: #AEF1AE">
+          createTrainingJobRequest.withStoppingCondition(stoppingCondition)
+        </td>
+      </tr><tr>
+        <td>
+          405
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          21849
+          -
+          21884
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.currentTimeMillis
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis
+        </td>
+      </tr><tr>
+        <td>
+          407
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          21902
+          -
+          22008
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SageMakerEstimator.this.sagemakerClient.createTrainingJob(createTrainingJobRequest);
+  SageMakerEstimator.this.awaitTrainingCompletion(trainingJobName)
+}
+        </td>
+      </tr><tr>
+        <td>
+          408
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          21902
+          -
+          21961
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.createTrainingJob
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.sagemakerClient.createTrainingJob(createTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          409
+        </td>
+        <td>
+          227
+        </td>
+        <td>
+          21968
+          -
+          22008
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.awaitTrainingCompletion
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.awaitTrainingCompletion(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          411
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          22050
+          -
+          22118
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(&quot;Training job couldn\'t be completed.&quot;, t)
+        </td>
+      </tr><tr>
+        <td>
+          412
+        </td>
+        <td>
+          233
+        </td>
+        <td>
+          22133
+          -
+          22292
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val trainingJobTime: Long = this.timeProvider.getElapsedTimeInSeconds(startingTrainingJobTime);
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Training Job Time: &quot;, &quot; s&quot;).s(trainingJobTime))
+}
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          22163
+          -
+          22229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.getElapsedTimeInSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.getElapsedTimeInSeconds(startingTrainingJobTime)
+        </td>
+      </tr><tr>
+        <td>
+          414
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          22236
+          -
+          22286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Training Job Time: &quot;, &quot; s&quot;).s(trainingJobTime))
+        </td>
+      </tr><tr>
+        <td>
+          414
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          22245
+          -
+          22285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Training Job Time: &quot;, &quot; s&quot;).s(trainingJobTime)
+        </td>
+      </tr><tr>
+        <td>
+          419
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          22393
+          -
+          22428
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.currentTimeMillis
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis
+        </td>
+      </tr><tr>
+        <td>
+          421
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          22466
+          -
+          22542
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobRequest.withTrainingJobName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeTrainingJobRequest().withTrainingJobName(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          422
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          22547
+          -
+          22603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          424
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          22609
+          -
+          22669
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Begin waiting for training job &quot;, &quot;&quot;).s(trainingJobName))
+        </td>
+      </tr><tr>
+        <td>
+          424
+        </td>
+        <td>
+          237
+        </td>
+        <td>
+          22618
+          -
+          22668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Begin waiting for training job &quot;, &quot;&quot;).s(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          280
+        </td>
+        <td>
+          22674
+          -
+          22674
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          240
+        </td>
+        <td>
+          22681
+          -
+          22758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis.-(startTime).&lt;(SageMakerEstimator.this.trainingJobTimeout.toMillis())
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          279
+        </td>
+        <td>
+          22760
+          -
+          23958
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    try {
+      val response: com.amazonaws.services.sagemaker.model.DescribeTrainingJobResult = SageMakerEstimator.this.sagemakerClient.describeTrainingJob(describeTrainingJobRequest);
+      val currentStatus: com.amazonaws.services.sagemaker.model.TrainingJobStatus = com.amazonaws.services.sagemaker.model.TrainingJobStatus.fromValue(response.getTrainingJobStatus());
+      SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Training job status: &quot;, &quot;&quot;).s(currentStatus));
+      currentStatus match {
+        case Completed =&gt; return ()
+        case Failed =&gt; {
+          val message: String = scala.StringContext.apply(&quot;Training job \'&quot;, &quot;\' failed for reason:&quot;).s(trainingJobName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason()));
+          throw new scala.`package`.RuntimeException(message)
+        }
+        case Stopped =&gt; {
+          val message: String = scala.StringContext.apply(&quot;Training job \'&quot;, &quot;\' stopped. Stopping condition:&quot;).s(trainingJobName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getStoppingCondition()));
+          throw new scala.`package`.RuntimeException(message)
+        }
+        case _ =&gt; ()
+      }
+    } catch {
+      case (e @ (_: com.amazonaws.SdkBaseException)) =&gt; {
+        if (com.amazonaws.retry.RetryUtils.isRetryableServiceException(e).unary_!)
+          throw e
+        else
+          ();
+        SageMakerEstimator.this.log.warn(scala.StringContext.apply(&quot;Retryable exception: &quot;, &quot;&quot;).s(e.getMessage()), e)
+      }
+      case (t @ (_: Throwable)) =&gt; throw t
+    };
+    SageMakerEstimator.this.timeProvider.sleep(SageMakerEstimator.TrainingJobPollInterval.toMillis())
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          281
+        </td>
+        <td>
+          22674
+          -
+          22674
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          239
+        </td>
+        <td>
+          22731
+          -
+          22758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.toMillis
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.trainingJobTimeout.toMillis()
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          22760
+          -
+          22760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerEstimator.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          22782
+          -
+          23620
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val response: com.amazonaws.services.sagemaker.model.DescribeTrainingJobResult = SageMakerEstimator.this.sagemakerClient.describeTrainingJob(describeTrainingJobRequest);
+  val currentStatus: com.amazonaws.services.sagemaker.model.TrainingJobStatus = com.amazonaws.services.sagemaker.model.TrainingJobStatus.fromValue(response.getTrainingJobStatus());
+  SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Training job status: &quot;, &quot;&quot;).s(currentStatus));
+  currentStatus match {
+    case Completed =&gt; return ()
+    case Failed =&gt; {
+      val message: String = scala.StringContext.apply(&quot;Training job \'&quot;, &quot;\' failed for reason:&quot;).s(trainingJobName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason()));
+      throw new scala.`package`.RuntimeException(message)
+    }
+    case Stopped =&gt; {
+      val message: String = scala.StringContext.apply(&quot;Training job \'&quot;, &quot;\' stopped. Stopping condition:&quot;).s(trainingJobName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getStoppingCondition()));
+      throw new scala.`package`.RuntimeException(message)
+    }
+    case _ =&gt; ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          241
+        </td>
+        <td>
+          22797
+          -
+          22860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeTrainingJob
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.sagemakerClient.describeTrainingJob(describeTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          22889
+          -
+          22947
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.TrainingJobStatus.fromValue
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.model.TrainingJobStatus.fromValue(response.getTrainingJobStatus())
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          242
+        </td>
+        <td>
+          22917
+          -
+          22946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobResult.getTrainingJobStatus
+        </td>
+        <td style="background: #AEF1AE">
+          response.getTrainingJobStatus()
+        </td>
+      </tr><tr>
+        <td>
+          429
+        </td>
+        <td>
+          245
+        </td>
+        <td>
+          22956
+          -
+          23004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.info(scala.StringContext.apply(&quot;Training job status: &quot;, &quot;&quot;).s(currentStatus))
+        </td>
+      </tr><tr>
+        <td>
+          429
+        </td>
+        <td>
+          244
+        </td>
+        <td>
+          22965
+          -
+          23003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Training job status: &quot;, &quot;&quot;).s(currentStatus)
+        </td>
+      </tr><tr>
+        <td>
+          431
+        </td>
+        <td>
+          246
+        </td>
+        <td>
+          23081
+          -
+          23087
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          433
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          23157
+          -
+          23261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Training job \'&quot;, &quot;\' failed for reason:&quot;).s(trainingJobName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason()))
+        </td>
+      </tr><tr>
+        <td>
+          433
+        </td>
+        <td>
+          247
+        </td>
+        <td>
+          23159
+          -
+          23174
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Training job \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          433
+        </td>
+        <td>
+          248
+        </td>
+        <td>
+          23189
+          -
+          23210
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\' failed for reason:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          250
+        </td>
+        <td>
+          23259
+          -
+          23261
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          249
+        </td>
+        <td>
+          23229
+          -
+          23232
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          252
+        </td>
+        <td>
+          23227
+          -
+          23261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason())
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          251
+        </td>
+        <td>
+          23233
+          -
+          23258
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobResult.getFailureReason
+        </td>
+        <td style="background: #AEF1AE">
+          response.getFailureReason()
+        </td>
+      </tr><tr>
+        <td>
+          435
+        </td>
+        <td>
+          254
+        </td>
+        <td>
+          23274
+          -
+          23309
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(message)
+        </td>
+      </tr><tr>
+        <td>
+          437
+        </td>
+        <td>
+          256
+        </td>
+        <td>
+          23412
+          -
+          23443
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\' stopped. Stopping condition:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          437
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          23380
+          -
+          23498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Training job \'&quot;, &quot;\' stopped. Stopping condition:&quot;).s(trainingJobName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getStoppingCondition()))
+        </td>
+      </tr><tr>
+        <td>
+          437
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          23382
+          -
+          23397
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Training job \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          438
+        </td>
+        <td>
+          259
+        </td>
+        <td>
+          23466
+          -
+          23495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobResult.getStoppingCondition
+        </td>
+        <td style="background: #F0ADAD">
+          response.getStoppingCondition()
+        </td>
+      </tr><tr>
+        <td>
+          438
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          23496
+          -
+          23498
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          438
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          23462
+          -
+          23465
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          438
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          23460
+          -
+          23498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getStoppingCondition())
+        </td>
+      </tr><tr>
+        <td>
+          439
+        </td>
+        <td>
+          262
+        </td>
+        <td>
+          23511
+          -
+          23546
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.RuntimeException(message)
+        </td>
+      </tr><tr>
+        <td>
+          440
+        </td>
+        <td>
+          263
+        </td>
+        <td>
+          23564
+          -
+          23566
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          444
+        </td>
+        <td>
+          265
+        </td>
+        <td>
+          23688
+          -
+          23730
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.retry.RetryUtils.isRetryableServiceException(e).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          444
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          23684
+          -
+          23684
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          444
+        </td>
+        <td>
+          269
+        </td>
+        <td>
+          23684
+          -
+          23684
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          445
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          23746
+          -
+          23753
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          445
+        </td>
+        <td>
+          266
+        </td>
+        <td>
+          23746
+          -
+          23753
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          447
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          23823
+          -
+          23824
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          447
+        </td>
+        <td>
+          274
+        </td>
+        <td>
+          23776
+          -
+          23828
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.warn(scala.StringContext.apply(&quot;Retryable exception: &quot;, &quot;&quot;).s(e.getMessage()), e)
+        </td>
+      </tr><tr>
+        <td>
+          447
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          23787
+          -
+          23809
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Retryable exception: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          447
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          23785
+          -
+          23824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Retryable exception: &quot;, &quot;&quot;).s(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          447
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          23810
+          -
+          23822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #AEF1AE">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          448
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          23859
+          -
+          23866
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw t
+        </td>
+      </tr><tr>
+        <td>
+          450
+        </td>
+        <td>
+          277
+        </td>
+        <td>
+          23881
+          -
+          23952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.sleep
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.timeProvider.sleep(SageMakerEstimator.TrainingJobPollInterval.toMillis())
+        </td>
+      </tr><tr>
+        <td>
+          450
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          23900
+          -
+          23951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.toMillis
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.TrainingJobPollInterval.toMillis()
+        </td>
+      </tr><tr>
+        <td>
+          452
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          23963
+          -
+          24122
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(scala.StringContext.apply(&quot;Timed out after &quot;, &quot; while waiting for&quot;).s(SageMakerEstimator.this.trainingJobTimeout.toString()).+(scala.StringContext.apply(&quot; Training Job \'&quot;, &quot;\' to finish creating.&quot;).s(trainingJobName)))
+        </td>
+      </tr><tr>
+        <td>
+          457
+        </td>
+        <td>
+          283
+        </td>
+        <td>
+          24215
+          -
+          24232
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.bucket
+        </td>
+        <td style="background: #AEF1AE">
+          s3DataPath.bucket
+        </td>
+      </tr><tr>
+        <td>
+          458
+        </td>
+        <td>
+          284
+        </td>
+        <td>
+          24252
+          -
+          24273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.objectPath
+        </td>
+        <td style="background: #AEF1AE">
+          s3DataPath.objectPath
+        </td>
+      </tr><tr>
+        <td>
+          460
+        </td>
+        <td>
+          291
+        </td>
+        <td>
+          24291
+          -
+          24517
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val objectList: com.amazonaws.services.s3.model.ObjectListing = SageMakerEstimator.this.s3Client.listObjects(s3Bucket, s3Prefix);
+  scala.collection.JavaConversions.asScalaBuffer[com.amazonaws.services.s3.model.S3ObjectSummary](objectList.getObjectSummaries()).foreach[Unit](((s3Object: com.amazonaws.services.s3.model.S3ObjectSummary) =&gt; SageMakerEstimator.this.s3Client.deleteObject(s3Bucket, s3Object.getKey())));
+  SageMakerEstimator.this.s3Client.deleteObject(s3Bucket, s3Prefix)
+}
+        </td>
+      </tr><tr>
+        <td>
+          461
+        </td>
+        <td>
+          285
+        </td>
+        <td>
+          24308
+          -
+          24348
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.AmazonS3.listObjects
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.s3Client.listObjects(s3Bucket, s3Prefix)
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          286
+        </td>
+        <td>
+          24372
+          -
+          24401
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.model.ObjectListing.getObjectSummaries
+        </td>
+        <td style="background: #AEF1AE">
+          objectList.getObjectSummaries()
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          289
+        </td>
+        <td>
+          24355
+          -
+          24461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConversions.asScalaBuffer[com.amazonaws.services.s3.model.S3ObjectSummary](objectList.getObjectSummaries()).foreach[Unit](((s3Object: com.amazonaws.services.s3.model.S3ObjectSummary) =&gt; SageMakerEstimator.this.s3Client.deleteObject(s3Bucket, s3Object.getKey())))
+        </td>
+      </tr><tr>
+        <td>
+          463
+        </td>
+        <td>
+          288
+        </td>
+        <td>
+          24413
+          -
+          24461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.AmazonS3.deleteObject
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.s3Client.deleteObject(s3Bucket, s3Object.getKey())
+        </td>
+      </tr><tr>
+        <td>
+          463
+        </td>
+        <td>
+          287
+        </td>
+        <td>
+          24445
+          -
+          24460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.model.S3ObjectSummary.getKey
+        </td>
+        <td style="background: #AEF1AE">
+          s3Object.getKey()
+        </td>
+      </tr><tr>
+        <td>
+          465
+        </td>
+        <td>
+          290
+        </td>
+        <td>
+          24476
+          -
+          24517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.s3.AmazonS3.deleteObject
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.s3Client.deleteObject(s3Bucket, s3Prefix)
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          298
+        </td>
+        <td>
+          24559
+          -
+          24674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerEstimator.this.log.warn(scala.StringContext.apply(&quot;Received exception from s3 client. Data deletion failed. &quot;).s().+(scala.StringContext.apply(&quot;Stack trace: &quot;, &quot;&quot;).s(t.getStackTrace())))
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          292
+        </td>
+        <td>
+          24570
+          -
+          24628
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Received exception from s3 client. Data deletion failed. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          297
+        </td>
+        <td>
+          24568
+          -
+          24673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Received exception from s3 client. Data deletion failed. &quot;).s().+(scala.StringContext.apply(&quot;Stack trace: &quot;, &quot;&quot;).s(t.getStackTrace()))
+        </td>
+      </tr><tr>
+        <td>
+          468
+        </td>
+        <td>
+          295
+        </td>
+        <td>
+          24656
+          -
+          24671
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getStackTrace
+        </td>
+        <td style="background: #AEF1AE">
+          t.getStackTrace()
+        </td>
+      </tr><tr>
+        <td>
+          468
+        </td>
+        <td>
+          294
+        </td>
+        <td>
+          24672
+          -
+          24673
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          468
+        </td>
+        <td>
+          293
+        </td>
+        <td>
+          24641
+          -
+          24655
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Stack trace: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          468
+        </td>
+        <td>
+          296
+        </td>
+        <td>
+          24639
+          -
+          24673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Stack trace: &quot;, &quot;&quot;).s(t.getStackTrace())
+        </td>
+      </tr><tr>
+        <td>
+          472
+        </td>
+        <td>
+          299
+        </td>
+        <td>
+          24745
+          -
+          24763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.defaultCopy
+        </td>
+        <td style="background: #F0ADAD">
+          SageMakerEstimator.this.defaultCopy[Nothing](extra)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

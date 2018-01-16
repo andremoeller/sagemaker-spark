@@ -1,0 +1,5901 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/SageMakerModel.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk
+</span>17 <span style=''>
+</span>18 <span style=''>import java.time.Duration
+</span>19 <span style=''>
+</span>20 <span style=''>import scala.collection.JavaConverters.mapAsJavaMapConverter
+</span>21 <span style=''>
+</span>22 <span style=''>import com.amazonaws.SdkBaseException
+</span>23 <span style=''>import com.amazonaws.retry.RetryUtils
+</span>24 <span style=''>
+</span>25 <span style=''>import org.apache.spark.annotation.DeveloperApi
+</span>26 <span style=''>import org.apache.spark.ml.Model
+</span>27 <span style=''>import org.apache.spark.ml.param.ParamMap
+</span>28 <span style=''>import org.apache.spark.ml.util.Identifiable
+</span>29 <span style=''>import org.apache.spark.sql.{DataFrame, Dataset}
+</span>30 <span style=''>import org.apache.spark.sql.catalyst.encoders.RowEncoder
+</span>31 <span style=''>import org.apache.spark.sql.types.StructType
+</span>32 <span style=''>
+</span>33 <span style=''>import com.amazonaws.services.sagemaker.{AmazonSageMaker, AmazonSageMakerClientBuilder}
+</span>34 <span style=''>import com.amazonaws.services.sagemaker.model._
+</span>35 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.EndpointCreationPolicy
+</span>36 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.exceptions.SageMakerSparkSDKException
+</span>37 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.internal.{InternalUtils, SystemTimeProvider, TimeProvider}
+</span>38 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{RequestRowSerializer, ResponseRowDeserializer}
+</span>39 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.LibSVMResponseRowDeserializer
+</span>40 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.LibSVMRequestRowSerializer
+</span>41 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.util.{RequestBatchIterator, RequestBatchIteratorFactory}
+</span>42 <span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>object SageMakerModel {
+</span>45 <span style=''>  var EndpointCreationTimeout : Duration = </span><span style='background: #AEF1AE'>Duration.ofMinutes(30)</span><span style=''>
+</span>46 <span style=''>  var EndpointPollInterval : Duration = </span><span style='background: #AEF1AE'>Duration.ofSeconds(5)</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  /**
+</span>49 <span style=''>    * Creates a SageMakerModel that can be used to transform DataFrames from a given successfully
+</span>50 <span style=''>    * completed Training Job.
+</span>51 <span style=''>    *
+</span>52 <span style=''>    * @param trainingJobName The name of the successfully completed training job.
+</span>53 <span style=''>    * @param modelImage The URI of the image that will serve model inferences.
+</span>54 <span style=''>    * @param modelExecutionRoleARN The IAM Role used by SageMaker when running the hosted Model and
+</span>55 <span style=''>    *                              to download model data from S3.
+</span>56 <span style=''>    * @param endpointInstanceType The instance type used to run the model container.
+</span>57 <span style=''>    * @param endpointInitialInstanceCount The minimum number of instances used to host the model.
+</span>58 <span style=''>    * @param requestRowSerializer Serializes a Row to an Array of Bytes.
+</span>59 <span style=''>    * @param responseRowDeserializer Deserializes an Array of Bytes to a series of Rows.
+</span>60 <span style=''>    * @param modelEnvironmentVariables The environment variables that SageMaker will set on the
+</span>61 <span style=''>    *                                  model container during execution.
+</span>62 <span style=''>    * @param endpointCreationPolicy Whether the endpoint is created upon SageMakerModel
+</span>63 <span style=''>    *                               construction, transformation, or not at all.
+</span>64 <span style=''>    * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>65 <span style=''>    *                        and CreateEndpoint requests.
+</span>66 <span style=''>    * @param prependResultRows Whether the transformation result should also include the input Rows.
+</span>67 <span style=''>    *                          If true, each output Row is formed by a concatenation of the input
+</span>68 <span style=''>    *                          Row with the corresponding Row produced by SageMaker invocation,
+</span>69 <span style=''>    *                          produced by responseRowDeserializer. If false, each output Row is
+</span>70 <span style=''>    *                          just taken
+</span>71 <span style=''>    *                          from responseRowDeserializer.
+</span>72 <span style=''>    * @param namePolicy The NamePolicy to use when naming SageMaker entities created during usage of
+</span>73 <span style=''>    *                   this Model.
+</span>74 <span style=''>    * @param uid The unique identifier of this Estimator. Used to represent this stage in
+</span>75 <span style=''>    *            Spark ML pipelines.
+</span>76 <span style=''>    * @return A [[SageMakerModel]] that sends InvokeEndpoint requests to an endpoint hosting
+</span>77 <span style=''>    *         the training job's model.
+</span>78 <span style=''>    */
+</span>79 <span style=''>  def fromTrainingJob(trainingJobName: String,
+</span>80 <span style=''>                      modelImage: String,
+</span>81 <span style=''>                      modelExecutionRoleARN: String,
+</span>82 <span style=''>                      endpointInstanceType: String,
+</span>83 <span style=''>                      endpointInitialInstanceCount : Int,
+</span>84 <span style=''>                      requestRowSerializer: RequestRowSerializer,
+</span>85 <span style=''>                      responseRowDeserializer: ResponseRowDeserializer,
+</span>86 <span style=''>                      modelEnvironmentVariables: Map[String, String] = Map[String, String](),
+</span>87 <span style=''>                      endpointCreationPolicy: EndpointCreationPolicy =
+</span>88 <span style=''>                        EndpointCreationPolicy.CREATE_ON_CONSTRUCT,
+</span>89 <span style=''>                      sagemakerClient : AmazonSageMaker
+</span>90 <span style=''>                        = AmazonSageMakerClientBuilder.defaultClient,
+</span>91 <span style=''>                      prependResultRows : Boolean = true,
+</span>92 <span style=''>                      namePolicy : NamePolicy = new RandomNamePolicy(),
+</span>93 <span style=''>                      uid: String = Identifiable.randomUID(&quot;sagemaker&quot;)) : SageMakerModel = {
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>require(endpointCreationPolicy != EndpointCreationPolicy.DO_NOT_CREATE,
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      &quot;Endpoint creation policy must not be DO_NOT_CREATE to&quot; +
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        &quot; create an endpoint from a training job name.&quot;)</span><span style=''>
+</span>97 <span style=''>
+</span>98 <span style=''>    val describeTrainingJobRequest = </span><span style='background: #AEF1AE'>new DescribeTrainingJobRequest()
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      .withTrainingJobName(trainingJobName)</span><span style=''>
+</span>100 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeTrainingJobRequest)</span><span style=''>
+</span>101 <span style=''>    val response = </span><span style='background: #AEF1AE'>sagemakerClient.describeTrainingJob(describeTrainingJobRequest)</span><span style=''>
+</span>102 <span style=''>
+</span>103 <span style=''>    val status = </span><span style='background: #AEF1AE'>TrainingJobStatus.fromValue(response.getTrainingJobStatus)</span><span style=''>
+</span>104 <span style=''>    </span><span style='background: #AEF1AE'>require(status == TrainingJobStatus.Completed || status == TrainingJobStatus.Stopped,
+</span>105 <span style=''></span><span style='background: #AEF1AE'>      &quot;Can only create a SageMakerModel from a training job with status&quot; +
+</span>106 <span style=''></span><span style='background: #AEF1AE'>        &quot; Completed or Stopped, not status &quot; + status.toString)</span><span style=''>
+</span>107 <span style=''>
+</span>108 <span style=''>    val modelPath = </span><span style='background: #AEF1AE'>response.getModelArtifacts.getS3ModelArtifacts</span><span style=''>
+</span>109 <span style=''>    </span><span style='background: #AEF1AE'>new SageMakerModel(modelImage = Some(modelImage),
+</span>110 <span style=''></span><span style='background: #AEF1AE'>      modelPath = Some(S3DataPath.fromS3URI(modelPath)),
+</span>111 <span style=''></span><span style='background: #AEF1AE'>      requestRowSerializer = requestRowSerializer,
+</span>112 <span style=''></span><span style='background: #AEF1AE'>      responseRowDeserializer = responseRowDeserializer,
+</span>113 <span style=''></span><span style='background: #AEF1AE'>      modelEnvironmentVariables = modelEnvironmentVariables,
+</span>114 <span style=''></span><span style='background: #AEF1AE'>      modelExecutionRoleARN = Some(modelExecutionRoleARN),
+</span>115 <span style=''></span><span style='background: #AEF1AE'>      endpointCreationPolicy = endpointCreationPolicy,
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      endpointInstanceType = Some(endpointInstanceType),
+</span>117 <span style=''></span><span style='background: #AEF1AE'>      endpointInitialInstanceCount = Some(endpointInitialInstanceCount),
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      sagemakerClient = sagemakerClient,
+</span>119 <span style=''></span><span style='background: #AEF1AE'>      prependResultRows = prependResultRows,
+</span>120 <span style=''></span><span style='background: #AEF1AE'>      namePolicy = namePolicy,
+</span>121 <span style=''></span><span style='background: #AEF1AE'>      uid = uid)</span><span style=''>
+</span>122 <span style=''>  }
+</span>123 <span style=''>
+</span>124 <span style=''>  /**
+</span>125 <span style=''>    * Creates a SageMakerModel that can be used to transform DataFrames using a given model stored
+</span>126 <span style=''>    * in S3.
+</span>127 <span style=''>    *
+</span>128 <span style=''>    * @param modelPath The S3 URI to the model data to host.
+</span>129 <span style=''>    * @param modelImage The URI of the image that will serves model inferences.
+</span>130 <span style=''>    * @param modelExecutionRoleARN The IAM Role used by SageMaker when running the hosted Model and
+</span>131 <span style=''>    *                              to download model data from S3.
+</span>132 <span style=''>    * @param requestRowSerializer Serializes a Row to an Array of Bytes.
+</span>133 <span style=''>    * @param responseRowDeserializer Deserializes an Array of Bytes to a series of Rows.
+</span>134 <span style=''>    * @param modelEnvironmentVariables The environment variables that SageMaker will set on the
+</span>135 <span style=''>    *                                  model container during execution.
+</span>136 <span style=''>    * @param endpointInstanceType The instance type used to run the model container.
+</span>137 <span style=''>    * @param endpointInitialInstanceCount The minimum number of instances used to host the model.
+</span>138 <span style=''>    * @param endpointCreationPolicy Whether the endpoint is created upon SageMakerModel
+</span>139 <span style=''>    *                               construction, transformation, or not at all.
+</span>140 <span style=''>    * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>141 <span style=''>    *                        and CreateEndpoint requests.
+</span>142 <span style=''>    * @param prependResultRows Whether the transformation result should also include the input Rows.
+</span>143 <span style=''>    *                          If true, each output Row is formed by a concatenation of the input
+</span>144 <span style=''>    *                          Row with the corresponding Row produced by SageMaker invocation,
+</span>145 <span style=''>    *                          produced by responseRowDeserializer. If false, each output Row is
+</span>146 <span style=''>    *                          just taken
+</span>147 <span style=''>    *                          from responseRowDeserializer.
+</span>148 <span style=''>    * @param namePolicy The NamePolicy to use when naming SageMaker entities created during usage of
+</span>149 <span style=''>    *                   this Model.
+</span>150 <span style=''>    * @param uid The unique identifier of this Estimator. Used to represent this stage in
+</span>151 <span style=''>    *            Spark ML pipelines.
+</span>152 <span style=''>    * @return A [[SageMakerModel]] that sends InvokeEndpoint requests to an endpoint hosting
+</span>153 <span style=''>    *         the given model.
+</span>154 <span style=''>    */
+</span>155 <span style=''>  def fromModelS3Path(modelPath: String,
+</span>156 <span style=''>                      modelImage: String,
+</span>157 <span style=''>                      modelExecutionRoleARN: String,
+</span>158 <span style=''>                      endpointInstanceType: String,
+</span>159 <span style=''>                      endpointInitialInstanceCount : Int,
+</span>160 <span style=''>                      requestRowSerializer: RequestRowSerializer,
+</span>161 <span style=''>                      responseRowDeserializer: ResponseRowDeserializer,
+</span>162 <span style=''>                      modelEnvironmentVariables: Map[String, String] = Map[String, String](),
+</span>163 <span style=''>                      endpointCreationPolicy: EndpointCreationPolicy =
+</span>164 <span style=''>                        EndpointCreationPolicy.CREATE_ON_CONSTRUCT,
+</span>165 <span style=''>                      sagemakerClient : AmazonSageMaker
+</span>166 <span style=''>                        = AmazonSageMakerClientBuilder.defaultClient,
+</span>167 <span style=''>                      prependResultRows : Boolean = true,
+</span>168 <span style=''>                      namePolicy : NamePolicy = new RandomNamePolicy(),
+</span>169 <span style=''>                      uid: String = Identifiable.randomUID(&quot;sagemaker&quot;)) : SageMakerModel = {
+</span>170 <span style=''>    </span><span style='background: #AEF1AE'>require(endpointCreationPolicy != EndpointCreationPolicy.DO_NOT_CREATE,
+</span>171 <span style=''></span><span style='background: #AEF1AE'>      &quot;Endpoint creation policy must not be DO_NOT_CREATE to create an endpoint from a model path.&quot;)</span><span style=''>
+</span>172 <span style=''>
+</span>173 <span style=''>    </span><span style='background: #AEF1AE'>new SageMakerModel(modelImage = Some(modelImage),
+</span>174 <span style=''></span><span style='background: #AEF1AE'>      modelPath = Some(S3DataPath.fromS3URI(modelPath)),
+</span>175 <span style=''></span><span style='background: #AEF1AE'>      requestRowSerializer = requestRowSerializer,
+</span>176 <span style=''></span><span style='background: #AEF1AE'>      responseRowDeserializer = responseRowDeserializer,
+</span>177 <span style=''></span><span style='background: #AEF1AE'>      modelEnvironmentVariables = modelEnvironmentVariables,
+</span>178 <span style=''></span><span style='background: #AEF1AE'>      modelExecutionRoleARN = Some(modelExecutionRoleARN),
+</span>179 <span style=''></span><span style='background: #AEF1AE'>      endpointCreationPolicy = endpointCreationPolicy,
+</span>180 <span style=''></span><span style='background: #AEF1AE'>      endpointInstanceType = Some(endpointInstanceType),
+</span>181 <span style=''></span><span style='background: #AEF1AE'>      endpointInitialInstanceCount = Some(endpointInitialInstanceCount),
+</span>182 <span style=''></span><span style='background: #AEF1AE'>      sagemakerClient = sagemakerClient,
+</span>183 <span style=''></span><span style='background: #AEF1AE'>      prependResultRows = prependResultRows,
+</span>184 <span style=''></span><span style='background: #AEF1AE'>      namePolicy = namePolicy,
+</span>185 <span style=''></span><span style='background: #AEF1AE'>      uid = uid)</span><span style=''>
+</span>186 <span style=''>  }
+</span>187 <span style=''>
+</span>188 <span style=''>  /**
+</span>189 <span style=''>    * Creates a SageMakerModel that can be used to transform DataFrames based on endpointName.
+</span>190 <span style=''>    *
+</span>191 <span style=''>    * @param endpointName The name of an endpoint that is current in service.
+</span>192 <span style=''>    * @param requestRowSerializer Serializes a Row to an Array of Bytes
+</span>193 <span style=''>    * @param responseRowDeserializer Deserializes an Array of Bytes to a series of Rows
+</span>194 <span style=''>    * @param modelEnvironmentVariables The environment variables that SageMaker will set on the
+</span>195 <span style=''>    *                                  model container during execution.
+</span>196 <span style=''>    * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>197 <span style=''>    *                        and CreateEndpoint requests.
+</span>198 <span style=''>    * @param prependResultRows Whether the transformation result should also include the input Rows.
+</span>199 <span style=''>    *                          If true, each output Row is formed by a concatenation of the input
+</span>200 <span style=''>    *                          Row with the corresponding Row produced by SageMaker invocation,
+</span>201 <span style=''>    *                          produced by responseRowDeserializer. If false, each output Row is
+</span>202 <span style=''>    *                          just taken from responseRowDeserializer.
+</span>203 <span style=''>    * @param namePolicy The NamePolicy to use when naming SageMaker entities created during usage of
+</span>204 <span style=''>    *                   this Model.
+</span>205 <span style=''>    * @param uid The unique identifier of this Estimator. Used to represent this stage in
+</span>206 <span style=''>    *            Spark ML pipelines.
+</span>207 <span style=''>    * @return a [[SageMakerModel]] that sends InvokeEndpoint requests to the given endpoint.
+</span>208 <span style=''>    */
+</span>209 <span style=''>  def fromEndpoint(endpointName: String,
+</span>210 <span style=''>                   requestRowSerializer: RequestRowSerializer,
+</span>211 <span style=''>                   responseRowDeserializer: ResponseRowDeserializer,
+</span>212 <span style=''>                   modelEnvironmentVariables: Map[String, String] = Map[String, String](),
+</span>213 <span style=''>                   sagemakerClient : AmazonSageMaker
+</span>214 <span style=''>                   = AmazonSageMakerClientBuilder.defaultClient,
+</span>215 <span style=''>                   prependResultRows : Boolean = true,
+</span>216 <span style=''>                   namePolicy : NamePolicy = new RandomNamePolicy(),
+</span>217 <span style=''>                   uid: String = Identifiable.randomUID(&quot;sagemaker&quot;)) : SageMakerModel = {
+</span>218 <span style=''>
+</span>219 <span style=''>    val describeEndpointRequest = </span><span style='background: #AEF1AE'>new DescribeEndpointRequest().withEndpointName(endpointName)</span><span style=''>
+</span>220 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeEndpointRequest)</span><span style=''>
+</span>221 <span style=''>    val result = </span><span style='background: #AEF1AE'>sagemakerClient.describeEndpoint(describeEndpointRequest)</span><span style=''>
+</span>222 <span style=''>
+</span>223 <span style=''>    val status = </span><span style='background: #AEF1AE'>result.getEndpointStatus</span><span style=''>
+</span>224 <span style=''>
+</span>225 <span style=''>    </span><span style='background: #AEF1AE'>require(status == EndpointStatus.InService.toString, </span><span style='background: #F0ADAD'>&quot;Endpoint status must be In Service, not &quot;
+</span>226 <span style=''></span><span style='background: #F0ADAD'>      + status</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>227 <span style=''>
+</span>228 <span style=''>    </span><span style='background: #AEF1AE'>new SageMakerModel(existingEndpointName = Some(endpointName),
+</span>229 <span style=''></span><span style='background: #AEF1AE'>      requestRowSerializer = requestRowSerializer,
+</span>230 <span style=''></span><span style='background: #AEF1AE'>      responseRowDeserializer = responseRowDeserializer,
+</span>231 <span style=''></span><span style='background: #AEF1AE'>      modelEnvironmentVariables = modelEnvironmentVariables,
+</span>232 <span style=''></span><span style='background: #AEF1AE'>      endpointCreationPolicy = EndpointCreationPolicy.DO_NOT_CREATE,
+</span>233 <span style=''></span><span style='background: #AEF1AE'>      endpointInstanceType = None,
+</span>234 <span style=''></span><span style='background: #AEF1AE'>      endpointInitialInstanceCount = None,
+</span>235 <span style=''></span><span style='background: #AEF1AE'>      sagemakerClient = sagemakerClient,
+</span>236 <span style=''></span><span style='background: #AEF1AE'>      prependResultRows = prependResultRows,
+</span>237 <span style=''></span><span style='background: #AEF1AE'>      namePolicy = namePolicy,
+</span>238 <span style=''></span><span style='background: #AEF1AE'>      uid = uid)</span><span style=''>
+</span>239 <span style=''>  }
+</span>240 <span style=''>
+</span>241 <span style=''>}
+</span>242 <span style=''>
+</span>243 <span style=''>/**
+</span>244 <span style=''>  * A Model implementation which transforms a DataFrame by making requests to a SageMaker Endpoint.
+</span>245 <span style=''>  * Manages life cycle of all necessary SageMaker entities, including Model, EndpointConfig, and
+</span>246 <span style=''>  * Endpoint.
+</span>247 <span style=''>  *
+</span>248 <span style=''>  * This Model transforms one DataFrame to another by repeated, distributed SageMaker Endpoint
+</span>249 <span style=''>  * invocation.
+</span>250 <span style=''>  * Each invocation request body is formed by concatenating input DataFrame Rows serialized to
+</span>251 <span style=''>  * Byte Arrays by the specified
+</span>252 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer serializer]].
+</span>253 <span style=''>  * The invocation request content-type property is set from
+</span>254 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.contentType
+</span>255 <span style=''>  * contentType]].
+</span>256 <span style=''>  * The invocation request accepts property is set from the deserializer's
+</span>257 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer.accepts
+</span>258 <span style=''>  * accepts]].
+</span>259 <span style=''>  *
+</span>260 <span style=''>  * The transformed DataFrame is produced by deserializing each invocation response body into a
+</span>261 <span style=''>  * series of Rows. Row deserialization is delegated to the specified
+</span>262 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer
+</span>263 <span style=''>  * deserializer]], which converts an Array of Bytes to an Iterator[Row]. If
+</span>264 <span style=''>  * prependInputRows is false, the transformed DataFrame will contain just these Rows. If
+</span>265 <span style=''>  * prependInputRows is true, then each transformed Row is a concatenation of the input Row with its
+</span>266 <span style=''>  * corresponding SageMaker invocation deserialized Row.
+</span>267 <span style=''>  *
+</span>268 <span style=''>  * Each invocation of [[SageMakerModel!.transform* transform]] passes the [[Dataset.schema]] of
+</span>269 <span style=''>  * the input DataFrame to requestRowSerialize by invoking
+</span>270 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.setSchema
+</span>271 <span style=''>  * setSchema]].
+</span>272 <span style=''>  *
+</span>273 <span style=''>  * The specified [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer
+</span>274 <span style=''>  * serializer]] also controls the validity of input Row Schemas for this
+</span>275 <span style=''>  * Model. Schema validation is carried out on each call to [[SageMakerModel!.transformSchema
+</span>276 <span style=''>  * transformSchema]], which invokes
+</span>277 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.validateSchema
+</span>278 <span style=''>  * validateSchema]].
+</span>279 <span style=''>  *
+</span>280 <span style=''>  * Adapting this SageMaker model to the data format and type of a specific Endpoint is achieved by
+</span>281 <span style=''>  * sub-classing [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer
+</span>282 <span style=''>  * RequestRowSerializer]] and
+</span>283 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer
+</span>284 <span style=''>  * RequestRowDeserializer]].
+</span>285 <span style=''>  * Examples of a Serializer and Deseralizer are
+</span>286 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.serializers.
+</span>287 <span style=''>  * LibSVMRequestRowSerializer]] and
+</span>288 <span style=''>  * [[com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.
+</span>289 <span style=''>  * LibSVMResponseRowDeserializer]]
+</span>290 <span style=''>  * respectively.
+</span>291 <span style=''>  *
+</span>292 <span style=''>  * @param endpointInstanceType The instance type used to run the model container.
+</span>293 <span style=''>  * @param endpointInitialInstanceCount The minimum number of instances used to host the model.
+</span>294 <span style=''>  * @param requestRowSerializer Serializes a Row to an Array of Bytes.
+</span>295 <span style=''>  * @param responseRowDeserializer Deserializes an Array of Bytes to a series of Rows.
+</span>296 <span style=''>  * @param existingEndpointName An endpoint name.
+</span>297 <span style=''>  * @param modelImage A Docker image URI.
+</span>298 <span style=''>  * @param modelPath An S3 location that a successfully completed SageMaker Training Job has stored
+</span>299 <span style=''>  *                  its model output to.
+</span>300 <span style=''>  * @param modelEnvironmentVariables The environment variables that SageMaker will set on the model
+</span>301 <span style=''>  *                                  container during execution.
+</span>302 <span style=''>  * @param modelExecutionRoleARN The IAM Role used by SageMaker when running the hosted Model and to
+</span>303 <span style=''>  *                              download model data from S3.
+</span>304 <span style=''>  * @param endpointCreationPolicy Whether the endpoint is created upon SageMakerModel construction,
+</span>305 <span style=''>  *                               transformation, or not at all.
+</span>306 <span style=''>  * @param sagemakerClient Amazon SageMaker client. Used to send CreateTrainingJob, CreateModel,
+</span>307 <span style=''>  *                        and CreateEndpoint requests.
+</span>308 <span style=''>  * @param prependResultRows Whether the transformation result should also include the input Rows.
+</span>309 <span style=''>  *                          If true, each output Row is formed by a concatenation of the input
+</span>310 <span style=''>  *                          Row with the corresponding Row produced by SageMaker invocation,
+</span>311 <span style=''>  *                          produced by responseRowDeserializer. If false, each output Row is
+</span>312 <span style=''>  *                          just taken from responseRowDeserializer.
+</span>313 <span style=''>  * @param namePolicy The NamePolicy to use when naming SageMaker entities created during usage of
+</span>314 <span style=''>  *                   this Model.
+</span>315 <span style=''>  * @param uid The unique identifier of this Estimator. Used to represent this stage in
+</span>316 <span style=''>  *            Spark ML pipelines.
+</span>317 <span style=''>  */
+</span>318 <span style=''>class SageMakerModel(
+</span>319 <span style=''>                     val endpointInstanceType : Option[String],
+</span>320 <span style=''>                     val endpointInitialInstanceCount : Option[Int],
+</span>321 <span style=''>                     val requestRowSerializer : RequestRowSerializer,
+</span>322 <span style=''>                     val responseRowDeserializer: ResponseRowDeserializer,
+</span>323 <span style=''>                     val existingEndpointName : Option[String] = Option.empty,
+</span>324 <span style=''>                     val modelImage : Option[String] = Option.empty,
+</span>325 <span style=''>                     val modelPath : Option[S3DataPath] = Option.empty,
+</span>326 <span style=''>                     val modelEnvironmentVariables : Map[String, String] =
+</span>327 <span style=''>                      Map[String, String](),
+</span>328 <span style=''>                     val modelExecutionRoleARN : Option[String] = Option.empty,
+</span>329 <span style=''>                     val endpointCreationPolicy : EndpointCreationPolicy =
+</span>330 <span style=''>                      EndpointCreationPolicy.CREATE_ON_CONSTRUCT,
+</span>331 <span style=''>                     val sagemakerClient : AmazonSageMaker
+</span>332 <span style=''>                       = AmazonSageMakerClientBuilder.defaultClient,
+</span>333 <span style=''>                     val prependResultRows : Boolean = true,
+</span>334 <span style=''>                     val namePolicy : NamePolicy = new RandomNamePolicy(),
+</span>335 <span style=''>                     override val uid: String = Identifiable.randomUID(&quot;sagemaker&quot;))
+</span>336 <span style=''>  extends Model[SageMakerModel] {
+</span>337 <span style=''>
+</span>338 <span style=''>  if (</span><span style='background: #AEF1AE'>existingEndpointName.nonEmpty</span><span style=''>) {
+</span>339 <span style=''>    </span><span style='background: #AEF1AE'>require(endpointCreationPolicy == EndpointCreationPolicy.DO_NOT_CREATE,
+</span>340 <span style=''></span><span style='background: #AEF1AE'>    </span><span style='background: #F0ADAD'>&quot;SageMakerModel's endpoint creation policy must be DO_NOT_CREATE if creating an &quot; +
+</span>341 <span style=''></span><span style='background: #F0ADAD'>      &quot;SageMakerModel from an existing endpoint.&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>342 <span style=''>  }
+</span>343 <span style=''>
+</span>344 <span style=''>  private[sparksdk] var timeProvider : TimeProvider = </span><span style='background: #AEF1AE'>new SystemTimeProvider()</span><span style=''>
+</span>345 <span style=''>
+</span>346 <span style=''>  /* These mutable fields keep track of the SageMaker resources which have been
+</span>347 <span style=''>   *  successfully created so far, so they can be deleted later. */
+</span>348 <span style=''>  private var createdModelName : Option[String] = </span><span style='background: #AEF1AE'>Option.empty</span><span style=''>
+</span>349 <span style=''>  private var createdEndpointConfigName : Option[String] = </span><span style='background: #AEF1AE'>Option.empty</span><span style=''>
+</span>350 <span style=''>  private var createdEndpointName : Option[String] = </span><span style='background: #AEF1AE'>Option.empty</span><span style=''>
+</span>351 <span style=''>
+</span>352 <span style=''>  if (</span><span style='background: #AEF1AE'>endpointCreationPolicy == EndpointCreationPolicy.CREATE_ON_CONSTRUCT</span><span style=''>) {
+</span>353 <span style=''>    </span><span style='background: #AEF1AE'>createSageMakerHostingResources()</span><span style=''>
+</span>354 <span style=''>  }
+</span>355 <span style=''>
+</span>356 <span style=''>  /**
+</span>357 <span style=''>    * An endpoint name if it exists or [[None]] otherwise.
+</span>358 <span style=''>    * @return An endpoint name.
+</span>359 <span style=''>    */
+</span>360 <span style=''>  def endpointName: Option[String] = {
+</span>361 <span style=''>    if (</span><span style='background: #AEF1AE'>existingEndpointName.isEmpty &amp;&amp; createdEndpointName.isEmpty</span><span style=''>) {
+</span>362 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>363 <span style=''>    } else {
+</span>364 <span style=''>      </span><span style='background: #AEF1AE'>Some(existingEndpointName.getOrElse(createdEndpointName.get))</span><span style=''>
+</span>365 <span style=''>    }
+</span>366 <span style=''>  }
+</span>367 <span style=''>
+</span>368 <span style=''>  private def createSageMakerHostingResources() : Unit = {
+</span>369 <span style=''>    val startingEndpointCreationTime = </span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis</span><span style=''>
+</span>370 <span style=''>    try {
+</span>371 <span style=''>      </span><span style='background: #AEF1AE'>createdModelName = Option(createModel)
+</span>372 <span style=''></span><span style='background: #AEF1AE'>      createdEndpointConfigName = Option(createEndpointConfig)
+</span>373 <span style=''></span><span style='background: #AEF1AE'>      createdEndpointName = Option(createEndpoint)
+</span>374 <span style=''></span><span style='background: #AEF1AE'>      awaitEndpointCompletion(createdEndpointName.get)</span><span style=''>
+</span>375 <span style=''>
+</span>376 <span style=''>    } catch {
+</span>377 <span style=''>      /* For certain exceptions, most notably timeout exceptions, we can't be sure if the resource
+</span>378 <span style=''>       * was created successfully on the server side. In these cases, we will still treat the
+</span>379 <span style=''>       * resource as not having been created, to err on the side of not deleting in this
+</span>380 <span style=''>       * ambiguous case. */
+</span>381 <span style=''>      case t: Throwable =&gt; </span><span style='background: #AEF1AE'>throw SageMakerSparkSDKException(
+</span>382 <span style=''></span><span style='background: #AEF1AE'>        &quot;SageMaker resource creation failed.&quot;, t, getCreatedResources)</span><span style=''>
+</span>383 <span style=''>    } finally </span><span style='background: #AEF1AE'>{
+</span>384 <span style=''></span><span style='background: #AEF1AE'>      val endpointCreationTime = this.timeProvider
+</span>385 <span style=''></span><span style='background: #AEF1AE'>        .getElapsedTimeInSeconds(startingEndpointCreationTime)
+</span>386 <span style=''></span><span style='background: #AEF1AE'>      log.info(s&quot;Endpoint Creation Time: $endpointCreationTime s&quot;)
+</span>387 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>388 <span style=''>  }
+</span>389 <span style=''>
+</span>390 <span style=''>  /**
+</span>391 <span style=''>    * Gets potentially created resources during operation of the SageMakerModel.
+</span>392 <span style=''>    * @return Resources that may have been created.
+</span>393 <span style=''>    */
+</span>394 <span style=''>  def getCreatedResources: CreatedResources = {
+</span>395 <span style=''>    </span><span style='background: #AEF1AE'>CreatedResources(this.createdModelName,
+</span>396 <span style=''></span><span style='background: #AEF1AE'>                     this.createdEndpointConfigName,
+</span>397 <span style=''></span><span style='background: #AEF1AE'>                     endpointName)</span><span style=''>
+</span>398 <span style=''>  }
+</span>399 <span style=''>
+</span>400 <span style=''>  private def createModel : String = {
+</span>401 <span style=''>    val modelName = </span><span style='background: #AEF1AE'>this.namePolicy.modelName</span><span style=''>
+</span>402 <span style=''>    val containerDefinition = </span><span style='background: #AEF1AE'>new ContainerDefinition()
+</span>403 <span style=''></span><span style='background: #AEF1AE'>        .withContainerHostname(modelName)
+</span>404 <span style=''></span><span style='background: #AEF1AE'>        .withImage(modelImage.get)
+</span>405 <span style=''></span><span style='background: #AEF1AE'>        .withEnvironment(modelEnvironmentVariables.asJava)
+</span>406 <span style=''></span><span style='background: #AEF1AE'>        .withModelDataUrl(this.modelPath.get.toS3UriString)</span><span style=''>
+</span>407 <span style=''>    val request = </span><span style='background: #AEF1AE'>new CreateModelRequest()
+</span>408 <span style=''></span><span style='background: #AEF1AE'>      .withModelName(modelName)
+</span>409 <span style=''></span><span style='background: #AEF1AE'>      .withPrimaryContainer(containerDefinition)
+</span>410 <span style=''></span><span style='background: #AEF1AE'>      .withExecutionRoleArn(modelExecutionRoleARN.orNull)</span><span style=''>
+</span>411 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(request)</span><span style=''>
+</span>412 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Create model request: ${request.toString}&quot;)</span><span style=''>
+</span>413 <span style=''>    </span><span style='background: #AEF1AE'>sagemakerClient.createModel(request)</span><span style=''>
+</span>414 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Created model $modelName&quot;)</span><span style=''>
+</span>415 <span style=''>    modelName
+</span>416 <span style=''>  }
+</span>417 <span style=''>
+</span>418 <span style=''>  /* We only need to use one variant for the endpoint, since we don't need A/B testing
+</span>419 <span style=''>   * or shadow mode features. */
+</span>420 <span style=''>  private final val VariantName = </span><span style='background: #F0ADAD'>&quot;AllRequests&quot;</span><span style=''>
+</span>421 <span style=''>
+</span>422 <span style=''>  private def createEndpointConfig : String = {
+</span>423 <span style=''>    val endpointConfigName = </span><span style='background: #AEF1AE'>this.namePolicy.endpointConfigName</span><span style=''>
+</span>424 <span style=''>    val productionVariant = </span><span style='background: #AEF1AE'>new ProductionVariant()
+</span>425 <span style=''></span><span style='background: #AEF1AE'>        .withModelName(this.namePolicy.modelName)
+</span>426 <span style=''></span><span style='background: #AEF1AE'>        .withInstanceType(endpointInstanceType.get)
+</span>427 <span style=''></span><span style='background: #AEF1AE'>        .withInitialInstanceCount(endpointInitialInstanceCount.get)
+</span>428 <span style=''></span><span style='background: #AEF1AE'>        .withVariantName(VariantName)</span><span style=''>
+</span>429 <span style=''>    val request = </span><span style='background: #AEF1AE'>new CreateEndpointConfigRequest()
+</span>430 <span style=''></span><span style='background: #AEF1AE'>      .withEndpointConfigName(endpointConfigName)
+</span>431 <span style=''></span><span style='background: #AEF1AE'>      .withProductionVariants(productionVariant)
+</span>432 <span style=''></span><span style='background: #AEF1AE'>      .withEndpointConfigName(this.namePolicy.endpointConfigName)</span><span style=''>
+</span>433 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(request)</span><span style=''>
+</span>434 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Create EndpointConfig request: ${request.toString}&quot;)</span><span style=''>
+</span>435 <span style=''>    </span><span style='background: #AEF1AE'>sagemakerClient.createEndpointConfig(request)</span><span style=''>
+</span>436 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Created endpoint config $endpointConfigName&quot;)</span><span style=''>
+</span>437 <span style=''>    endpointConfigName
+</span>438 <span style=''>  }
+</span>439 <span style=''>
+</span>440 <span style=''>  private def createEndpoint : String = {
+</span>441 <span style=''>    val endpointName = </span><span style='background: #AEF1AE'>this.namePolicy.endpointName</span><span style=''>
+</span>442 <span style=''>    val request = </span><span style='background: #AEF1AE'>new CreateEndpointRequest()
+</span>443 <span style=''></span><span style='background: #AEF1AE'>      .withEndpointConfigName(this.namePolicy.endpointConfigName)
+</span>444 <span style=''></span><span style='background: #AEF1AE'>      .withEndpointName(endpointName)</span><span style=''>
+</span>445 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(request)</span><span style=''>
+</span>446 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Create Endpoint request: ${request.toString}&quot;)</span><span style=''>
+</span>447 <span style=''>    </span><span style='background: #AEF1AE'>sagemakerClient.createEndpoint(request)</span><span style=''>
+</span>448 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Created endpoint $endpointName&quot;)</span><span style=''>
+</span>449 <span style=''>    endpointName
+</span>450 <span style=''>  }
+</span>451 <span style=''>
+</span>452 <span style=''>  private def awaitEndpointCompletion(endpointName : String) : Unit = {
+</span>453 <span style=''>    val startTime = </span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis</span><span style=''>
+</span>454 <span style=''>    val describeEndpointRequest = </span><span style='background: #AEF1AE'>new DescribeEndpointRequest().withEndpointName(endpointName)</span><span style=''>
+</span>455 <span style=''>    </span><span style='background: #AEF1AE'>InternalUtils.applyUserAgent(describeEndpointRequest)</span><span style=''>
+</span>456 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s&quot;Begin waiting for endpoint completion for endpoint $endpointName&quot;)</span><span style=''>
+</span>457 <span style=''>    while (</span><span style='background: #AEF1AE'>this.timeProvider.currentTimeMillis - startTime &lt;
+</span>458 <span style=''></span><span style='background: #AEF1AE'>      SageMakerModel.EndpointCreationTimeout.toMillis</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>459 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>460 <span style=''></span><span style='background: #AEF1AE'>        val response = sagemakerClient.describeEndpoint(describeEndpointRequest)
+</span>461 <span style=''></span><span style='background: #AEF1AE'>        val currentStatus = EndpointStatus.fromValue(response.getEndpointStatus)
+</span>462 <span style=''></span><span style='background: #AEF1AE'>        log.info(s&quot;Endpoint creation status: $currentStatus&quot;)
+</span>463 <span style=''></span><span style='background: #AEF1AE'>        currentStatus match {
+</span>464 <span style=''></span><span style='background: #AEF1AE'>          case EndpointStatus.InService =&gt; return
+</span>465 <span style=''></span><span style='background: #AEF1AE'>          case EndpointStatus.Failed =&gt;
+</span>466 <span style=''></span><span style='background: #AEF1AE'>            val message = s&quot;Endpoint '$endpointName' failed for reason:&quot; +
+</span>467 <span style=''></span><span style='background: #AEF1AE'>              s&quot; '${response.getFailureReason}'&quot;
+</span>468 <span style=''></span><span style='background: #AEF1AE'>            throw new RuntimeException(message)
+</span>469 <span style=''></span><span style='background: #AEF1AE'>          case _ =&gt; // for any other statuses, continue polling
+</span>470 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>471 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>472 <span style=''></span><span style='background: #AEF1AE'>        case e : SdkBaseException =&gt;
+</span>473 <span style=''></span><span style='background: #AEF1AE'>          if (!RetryUtils.isRetryableServiceException(e)) {
+</span>474 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>throw e</span><span style='background: #AEF1AE'>
+</span>475 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>476 <span style=''></span><span style='background: #AEF1AE'>          log.warn(s&quot;Retryable exception: ${e.getMessage}&quot;)
+</span>477 <span style=''></span><span style='background: #AEF1AE'>        case t : Throwable =&gt; throw t
+</span>478 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>479 <span style=''></span><span style='background: #AEF1AE'>
+</span>480 <span style=''></span><span style='background: #AEF1AE'>      timeProvider.sleep(SageMakerModel.EndpointPollInterval.toMillis)
+</span>481 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>482 <span style=''>
+</span>483 <span style=''>    </span><span style='background: #AEF1AE'>throw new RuntimeException(
+</span>484 <span style=''></span><span style='background: #AEF1AE'>      s&quot;Timed out after ${SageMakerModel.EndpointCreationTimeout.toString}&quot; +
+</span>485 <span style=''></span><span style='background: #AEF1AE'>      s&quot; while waiting for Endpoint '$endpointName' to finish creating.&quot;)</span><span style=''>
+</span>486 <span style=''>  }
+</span>487 <span style=''>
+</span>488 <span style=''>  /**
+</span>489 <span style=''>    * Transforms the input dataset.
+</span>490 <span style=''>    *
+</span>491 <span style=''>    * Transforms Dataset to DataFrame by repeated, distributed SageMaker Endpoint invocation
+</span>492 <span style=''>    * using [[RequestBatchIterator]].
+</span>493 <span style=''>    * Creates all necessary SageMaker entities if specified by the [[EndpointCreationPolicy]]
+</span>494 <span style=''>    * and if an Endpoint doesn't exist yet.
+</span>495 <span style=''>    * @param dataset An input dataset.
+</span>496 <span style=''>    * @return Transformed dataset.
+</span>497 <span style=''>    */
+</span>498 <span style=''>  override def transform(dataset: Dataset[_]): DataFrame = {
+</span>499 <span style=''>    if (</span><span style='background: #AEF1AE'>endpointCreationPolicy == EndpointCreationPolicy.CREATE_ON_TRANSFORM &amp;&amp;
+</span>500 <span style=''></span><span style='background: #AEF1AE'>        endpointName.isEmpty</span><span style=''>) {
+</span>501 <span style=''>      </span><span style='background: #AEF1AE'>createSageMakerHostingResources()</span><span style=''>
+</span>502 <span style=''>    }
+</span>503 <span style=''>    val dataFrame = </span><span style='background: #AEF1AE'>dataset.toDF()</span><span style=''>
+</span>504 <span style=''>    </span><span style='background: #AEF1AE'>requestRowSerializer.setSchema(dataFrame.schema)</span><span style=''>
+</span>505 <span style=''>    val resultSchema = </span><span style='background: #AEF1AE'>transformSchema(dataFrame.schema)</span><span style=''>
+</span>506 <span style=''>
+</span>507 <span style=''>    </span><span style='background: #AEF1AE'>require(endpointName.nonEmpty, </span><span style='background: #F0ADAD'>&quot;Endpoint name is empty. &quot; +
+</span>508 <span style=''></span><span style='background: #F0ADAD'>      &quot;Create an endpoint to set the endpoint name.&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>509 <span style=''>    val resultDF = </span><span style='background: #AEF1AE'>dataFrame.mapPartitions(RequestBatchIteratorFactory.createRequestBatchIterator
+</span>510 <span style=''></span><span style='background: #AEF1AE'>      (endpointName.get, requestRowSerializer,
+</span>511 <span style=''></span><span style='background: #AEF1AE'>        responseRowDeserializer, prependResultRows))(RowEncoder(resultSchema))</span><span style=''>
+</span>512 <span style=''>
+</span>513 <span style=''>    resultDF
+</span>514 <span style=''>  }
+</span>515 <span style=''>
+</span>516 <span style=''>  /**
+</span>517 <span style=''>    * Checks transform validity of the input schema and provides the output schema.
+</span>518 <span style=''>    *
+</span>519 <span style=''>    * Validates the input schema against
+</span>520 <span style=''>    * [[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer
+</span>521 <span style=''>    * RequestRowSerializer]] and returns
+</span>522 <span style=''>    * [[com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer
+</span>523 <span style=''>    * ResponseRowDeserializer]] schema.
+</span>524 <span style=''>    * Prepends the output with the input schema if required by the SageMakerModel.
+</span>525 <span style=''>    *
+</span>526 <span style=''>    * @param schema Input schema to be validated and transformed.
+</span>527 <span style=''>    * @return Output schema
+</span>528 <span style=''>    */
+</span>529 <span style=''>  @DeveloperApi
+</span>530 <span style=''>  override def transformSchema(schema: StructType): StructType = {
+</span>531 <span style=''>    </span><span style='background: #AEF1AE'>requestRowSerializer.validateSchema(schema)</span><span style=''>
+</span>532 <span style=''>
+</span>533 <span style=''>    if (</span><span style='background: #AEF1AE'>prependResultRows</span><span style=''>) {
+</span>534 <span style=''>      </span><span style='background: #AEF1AE'>new StructType((schema ++ responseRowDeserializer.schema).seq.toArray)</span><span style=''>
+</span>535 <span style=''>    } else {
+</span>536 <span style=''>      </span><span style='background: #AEF1AE'>responseRowDeserializer.schema</span><span style=''>
+</span>537 <span style=''>    }
+</span>538 <span style=''>  }
+</span>539 <span style=''>
+</span>540 <span style=''>  /**
+</span>541 <span style=''>    * Creates a copy of the SageMakerModel instance with the same instance variables
+</span>542 <span style=''>    * and extra params.
+</span>543 <span style=''>    *
+</span>544 <span style=''>    * Sets the EndpointCreationPolicy to EndpointCreationPolicy.DO_NOT_CREATE
+</span>545 <span style=''>    * regardless of the original EndpointCreationPolicy value so that
+</span>546 <span style=''>    * copies do not make Endpoints.
+</span>547 <span style=''>    *
+</span>548 <span style=''>    * @param extra Params to be applied to the new instance
+</span>549 <span style=''>    * @return The copy of SageMakerModel
+</span>550 <span style=''>    */
+</span>551 <span style=''>  override def copy(extra: ParamMap): SageMakerModel = {
+</span>552 <span style=''>    val that = </span><span style='background: #AEF1AE'>this.getClass.getConstructor(
+</span>553 <span style=''></span><span style='background: #AEF1AE'>      classOf[Option[String]],
+</span>554 <span style=''></span><span style='background: #AEF1AE'>      classOf[Option[Int]],
+</span>555 <span style=''></span><span style='background: #AEF1AE'>      classOf[RequestRowSerializer],
+</span>556 <span style=''></span><span style='background: #AEF1AE'>      classOf[ResponseRowDeserializer],
+</span>557 <span style=''></span><span style='background: #AEF1AE'>      classOf[Option[String]],
+</span>558 <span style=''></span><span style='background: #AEF1AE'>      classOf[Option[String]],
+</span>559 <span style=''></span><span style='background: #AEF1AE'>      classOf[Option[String]],
+</span>560 <span style=''></span><span style='background: #AEF1AE'>      classOf[Map[String, String]],
+</span>561 <span style=''></span><span style='background: #AEF1AE'>      classOf[Option[String]],
+</span>562 <span style=''></span><span style='background: #AEF1AE'>      classOf[EndpointCreationPolicy],
+</span>563 <span style=''></span><span style='background: #AEF1AE'>      classOf[AmazonSageMaker],
+</span>564 <span style=''></span><span style='background: #AEF1AE'>      classOf[Boolean],
+</span>565 <span style=''></span><span style='background: #AEF1AE'>      classOf[NamePolicy],
+</span>566 <span style=''></span><span style='background: #AEF1AE'>      classOf[String]).newInstance(
+</span>567 <span style=''></span><span style='background: #AEF1AE'>      this.endpointInstanceType,
+</span>568 <span style=''></span><span style='background: #AEF1AE'>      this.endpointInitialInstanceCount,
+</span>569 <span style=''></span><span style='background: #AEF1AE'>      this.requestRowSerializer,
+</span>570 <span style=''></span><span style='background: #AEF1AE'>      this.responseRowDeserializer,
+</span>571 <span style=''></span><span style='background: #AEF1AE'>      this.endpointName,
+</span>572 <span style=''></span><span style='background: #AEF1AE'>      this.modelImage,
+</span>573 <span style=''></span><span style='background: #AEF1AE'>      this.modelPath,
+</span>574 <span style=''></span><span style='background: #AEF1AE'>      this.modelEnvironmentVariables,
+</span>575 <span style=''></span><span style='background: #AEF1AE'>      this.modelExecutionRoleARN,
+</span>576 <span style=''></span><span style='background: #AEF1AE'>      EndpointCreationPolicy.DO_NOT_CREATE,
+</span>577 <span style=''></span><span style='background: #AEF1AE'>      this.sagemakerClient,
+</span>578 <span style=''></span><span style='background: #AEF1AE'>      Boolean.box(this.prependResultRows),
+</span>579 <span style=''></span><span style='background: #AEF1AE'>      this.namePolicy,
+</span>580 <span style=''></span><span style='background: #AEF1AE'>      this.uid
+</span>581 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>582 <span style=''>    </span><span style='background: #AEF1AE'>copyValues(that, extra)</span><span style=''>
+</span>583 <span style=''>  }
+</span>584 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          300
+        </td>
+        <td>
+          2059
+          -
+          2081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.ofMinutes
+        </td>
+        <td style="background: #AEF1AE">
+          java.time.Duration.ofMinutes(30L)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          301
+        </td>
+        <td>
+          2122
+          -
+          2143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.ofSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          java.time.Duration.ofSeconds(5L)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          5337
+          -
+          5399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #AEF1AE">
+          endpointCreationPolicy.!=(EndpointCreationPolicy.DO_NOT_CREATE)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          302
+        </td>
+        <td>
+          5363
+          -
+          5399
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          5329
+          -
+          5521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(endpointCreationPolicy.!=(EndpointCreationPolicy.DO_NOT_CREATE), &quot;Endpoint creation policy must not be DO_NOT_CREATE to create an endpoint from a training job name.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          304
+        </td>
+        <td>
+          5407
+          -
+          5520
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Endpoint creation policy must not be DO_NOT_CREATE to create an endpoint from a training job name.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          306
+        </td>
+        <td>
+          5560
+          -
+          5636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobRequest.withTrainingJobName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeTrainingJobRequest().withTrainingJobName(trainingJobName)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          307
+        </td>
+        <td>
+          5641
+          -
+          5697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          308
+        </td>
+        <td>
+          5717
+          -
+          5780
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeTrainingJob
+        </td>
+        <td style="background: #AEF1AE">
+          sagemakerClient.describeTrainingJob(describeTrainingJobRequest)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          310
+        </td>
+        <td>
+          5799
+          -
+          5857
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.TrainingJobStatus.fromValue
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.model.TrainingJobStatus.fromValue(response.getTrainingJobStatus())
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          309
+        </td>
+        <td>
+          5827
+          -
+          5856
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeTrainingJobResult.getTrainingJobStatus
+        </td>
+        <td style="background: #AEF1AE">
+          response.getTrainingJobStatus()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          313
+        </td>
+        <td>
+          5870
+          -
+          5946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          status.==(Completed).||(status.==(Stopped))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          5911
+          -
+          5946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          status.==(Stopped)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          317
+        </td>
+        <td>
+          5862
+          -
+          6086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(status.==(Completed).||(status.==(Stopped)), &quot;Can only create a SageMakerModel from a training job with status Completed or Stopped, not status &quot;.+(status.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          5880
+          -
+          5907
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          Completed
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          5954
+          -
+          6067
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Can only create a SageMakerModel from a training job with status Completed or Stopped, not status &quot;
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          5954
+          -
+          6085
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Can only create a SageMakerModel from a training job with status Completed or Stopped, not status &quot;.+(status.toString())
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          6070
+          -
+          6085
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.TrainingJobStatus.toString
+        </td>
+        <td style="background: #AEF1AE">
+          status.toString()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          318
+        </td>
+        <td>
+          6108
+          -
+          6154
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.ModelArtifacts.getS3ModelArtifacts
+        </td>
+        <td style="background: #AEF1AE">
+          response.getModelArtifacts().getS3ModelArtifacts()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          6159
+          -
+          6159
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          sparksdk.this.SageMakerModel.&lt;init&gt;$default$5
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          6191
+          -
+          6207
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](modelImage)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          6159
+          -
+          6812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new SageMakerModel(x$8, x$9, x$3, x$4, x$14, x$1, x$2, x$5, x$6, x$7, x$10, x$11, x$12, x$13)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          321
+        </td>
+        <td>
+          6227
+          -
+          6264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.amazonaws.services.sagemaker.sparksdk.S3DataPath](S3DataPath.fromS3URI(modelPath))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          320
+        </td>
+        <td>
+          6232
+          -
+          6263
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.fromS3URI
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.fromS3URI(modelPath)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          6465
+          -
+          6492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](modelExecutionRoleARN)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          323
+        </td>
+        <td>
+          6578
+          -
+          6604
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](endpointInstanceType)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          324
+        </td>
+        <td>
+          6643
+          -
+          6677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Int](endpointInitialInstanceCount)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          9959
+          -
+          10021
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #AEF1AE">
+          endpointCreationPolicy.!=(EndpointCreationPolicy.DO_NOT_CREATE)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          327
+        </td>
+        <td>
+          9985
+          -
+          10021
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          330
+        </td>
+        <td>
+          9951
+          -
+          10123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(endpointCreationPolicy.!=(EndpointCreationPolicy.DO_NOT_CREATE), &quot;Endpoint creation policy must not be DO_NOT_CREATE to create an endpoint from a model path.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          329
+        </td>
+        <td>
+          10029
+          -
+          10122
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Endpoint creation policy must not be DO_NOT_CREATE to create an endpoint from a model path.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          331
+        </td>
+        <td>
+          10161
+          -
+          10177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](modelImage)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          337
+        </td>
+        <td>
+          10129
+          -
+          10129
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          sparksdk.this.SageMakerModel.&lt;init&gt;$default$5
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          338
+        </td>
+        <td>
+          10129
+          -
+          10782
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new SageMakerModel(x$22, x$23, x$17, x$18, x$28, x$15, x$16, x$19, x$20, x$21, x$24, x$25, x$26, x$27)
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          10197
+          -
+          10234
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.amazonaws.services.sagemaker.sparksdk.S3DataPath](S3DataPath.fromS3URI(modelPath))
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          10202
+          -
+          10233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.fromS3URI
+        </td>
+        <td style="background: #AEF1AE">
+          S3DataPath.fromS3URI(modelPath)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          10435
+          -
+          10462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](modelExecutionRoleARN)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          335
+        </td>
+        <td>
+          10548
+          -
+          10574
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](endpointInstanceType)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          336
+        </td>
+        <td>
+          10613
+          -
+          10647
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Int](endpointInitialInstanceCount)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          12919
+          -
+          12979
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointRequest.withEndpointName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeEndpointRequest().withEndpointName(endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          12984
+          -
+          13037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeEndpointRequest)
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          13055
+          -
+          13112
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          sagemakerClient.describeEndpoint(describeEndpointRequest)
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          13131
+          -
+          13155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointResult.getEndpointStatus
+        </td>
+        <td style="background: #AEF1AE">
+          result.getEndpointStatus()
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          13161
+          -
+          13272
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(status.==(InService.toString()), &quot;Endpoint status must be In Service, not &quot;.+(status))
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          13179
+          -
+          13212
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.EndpointStatus.toString
+        </td>
+        <td style="background: #AEF1AE">
+          InService.toString()
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          344
+        </td>
+        <td>
+          13169
+          -
+          13212
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          status.==(InService.toString())
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          345
+        </td>
+        <td>
+          13214
+          -
+          13271
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Endpoint status must be In Service, not &quot;.+(status)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          352
+        </td>
+        <td>
+          13278
+          -
+          13278
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;$default$7
+        </td>
+        <td style="background: #AEF1AE">
+          sparksdk.this.SageMakerModel.&lt;init&gt;$default$7
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          354
+        </td>
+        <td>
+          13278
+          -
+          13789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new SageMakerModel(x$34, x$35, x$30, x$31, x$29, x$40, x$41, x$32, x$42, x$33, x$36, x$37, x$38, x$39)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          351
+        </td>
+        <td>
+          13278
+          -
+          13278
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;$default$6
+        </td>
+        <td style="background: #AEF1AE">
+          sparksdk.this.SageMakerModel.&lt;init&gt;$default$6
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          13278
+          -
+          13278
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.&lt;init&gt;$default$9
+        </td>
+        <td style="background: #AEF1AE">
+          sparksdk.this.SageMakerModel.&lt;init&gt;$default$9
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          347
+        </td>
+        <td>
+          13320
+          -
+          13338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          13540
+          -
+          13576
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          13607
+          -
+          13611
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          13650
+          -
+          13654
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          19826
+          -
+          19855
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.nonEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.existingEndpointName.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          361
+        </td>
+        <td>
+          19822
+          -
+          19822
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          362
+        </td>
+        <td>
+          19822
+          -
+          19822
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          19863
+          -
+          20073
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(SageMakerModel.this.endpointCreationPolicy.==(EndpointCreationPolicy.DO_NOT_CREATE), &quot;SageMakerModel\'s endpoint creation policy must be DO_NOT_CREATE if creating an SageMakerModel from an existing endpoint.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          357
+        </td>
+        <td>
+          19871
+          -
+          19933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointCreationPolicy.==(EndpointCreationPolicy.DO_NOT_CREATE)
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          19863
+          -
+          20073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(SageMakerModel.this.endpointCreationPolicy.==(EndpointCreationPolicy.DO_NOT_CREATE), &quot;SageMakerModel\'s endpoint creation policy must be DO_NOT_CREATE if creating an SageMakerModel from an existing endpoint.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          19897
+          -
+          19933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          358
+        </td>
+        <td>
+          19939
+          -
+          20072
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SageMakerModel\'s endpoint creation policy must be DO_NOT_CREATE if creating an SageMakerModel from an existing endpoint.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          363
+        </td>
+        <td>
+          20133
+          -
+          20157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.SystemTimeProvider.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.sparksdk.internal.SystemTimeProvider()
+        </td>
+      </tr><tr>
+        <td>
+          348
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          20357
+          -
+          20369
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Option.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          349
+        </td>
+        <td>
+          365
+        </td>
+        <td>
+          20429
+          -
+          20441
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Option.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          350
+        </td>
+        <td>
+          366
+        </td>
+        <td>
+          20495
+          -
+          20507
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Option.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          20541
+          -
+          20583
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.CREATE_ON_CONSTRUCT
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.CREATE_ON_CONSTRUCT
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          372
+        </td>
+        <td>
+          20511
+          -
+          20511
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          368
+        </td>
+        <td>
+          20515
+          -
+          20583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointCreationPolicy.==(EndpointCreationPolicy.CREATE_ON_CONSTRUCT)
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          371
+        </td>
+        <td>
+          20511
+          -
+          20511
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          370
+        </td>
+        <td>
+          20591
+          -
+          20624
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createSageMakerHostingResources
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createSageMakerHostingResources()
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          369
+        </td>
+        <td>
+          20591
+          -
+          20624
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createSageMakerHostingResources
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createSageMakerHostingResources()
+        </td>
+      </tr><tr>
+        <td>
+          361
+        </td>
+        <td>
+          373
+        </td>
+        <td>
+          20813
+          -
+          20840
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createdEndpointName.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          361
+        </td>
+        <td>
+          374
+        </td>
+        <td>
+          20781
+          -
+          20840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.existingEndpointName.isEmpty.&amp;&amp;(SageMakerModel.this.createdEndpointName.isEmpty)
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          376
+        </td>
+        <td>
+          20850
+          -
+          20854
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          375
+        </td>
+        <td>
+          20850
+          -
+          20854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          364
+        </td>
+        <td>
+          379
+        </td>
+        <td>
+          20874
+          -
+          20935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](SageMakerModel.this.existingEndpointName.getOrElse[String](SageMakerModel.this.createdEndpointName.get))
+        </td>
+      </tr><tr>
+        <td>
+          364
+        </td>
+        <td>
+          378
+        </td>
+        <td>
+          20879
+          -
+          20934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.existingEndpointName.getOrElse[String](SageMakerModel.this.createdEndpointName.get)
+        </td>
+      </tr><tr>
+        <td>
+          364
+        </td>
+        <td>
+          377
+        </td>
+        <td>
+          20910
+          -
+          20933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createdEndpointName.get
+        </td>
+      </tr><tr>
+        <td>
+          364
+        </td>
+        <td>
+          380
+        </td>
+        <td>
+          20874
+          -
+          20935
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](SageMakerModel.this.existingEndpointName.getOrElse[String](SageMakerModel.this.createdEndpointName.get))
+        </td>
+      </tr><tr>
+        <td>
+          369
+        </td>
+        <td>
+          381
+        </td>
+        <td>
+          21045
+          -
+          21080
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.currentTimeMillis
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis
+        </td>
+      </tr><tr>
+        <td>
+          370
+        </td>
+        <td>
+          393
+        </td>
+        <td>
+          21097
+          -
+          21304
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SageMakerModel.this.createdModelName_=(scala.Option.apply[String](SageMakerModel.this.createModel));
+  SageMakerModel.this.createdEndpointConfigName_=(scala.Option.apply[String](SageMakerModel.this.createEndpointConfig));
+  SageMakerModel.this.createdEndpointName_=(scala.Option.apply[String](SageMakerModel.this.createEndpoint));
+  SageMakerModel.this.awaitEndpointCompletion(SageMakerModel.this.createdEndpointName.get)
+}
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          382
+        </td>
+        <td>
+          21123
+          -
+          21134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createModel
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createModel
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          384
+        </td>
+        <td>
+          21097
+          -
+          21135
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createdModelName_=
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createdModelName_=(scala.Option.apply[String](SageMakerModel.this.createModel))
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          383
+        </td>
+        <td>
+          21116
+          -
+          21135
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[String](SageMakerModel.this.createModel)
+        </td>
+      </tr><tr>
+        <td>
+          372
+        </td>
+        <td>
+          385
+        </td>
+        <td>
+          21177
+          -
+          21197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createEndpointConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createEndpointConfig
+        </td>
+      </tr><tr>
+        <td>
+          372
+        </td>
+        <td>
+          387
+        </td>
+        <td>
+          21142
+          -
+          21198
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createdEndpointConfigName_=
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createdEndpointConfigName_=(scala.Option.apply[String](SageMakerModel.this.createEndpointConfig))
+        </td>
+      </tr><tr>
+        <td>
+          372
+        </td>
+        <td>
+          386
+        </td>
+        <td>
+          21170
+          -
+          21198
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[String](SageMakerModel.this.createEndpointConfig)
+        </td>
+      </tr><tr>
+        <td>
+          373
+        </td>
+        <td>
+          388
+        </td>
+        <td>
+          21234
+          -
+          21248
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createEndpoint
+        </td>
+      </tr><tr>
+        <td>
+          373
+        </td>
+        <td>
+          390
+        </td>
+        <td>
+          21205
+          -
+          21249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createdEndpointName_=
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createdEndpointName_=(scala.Option.apply[String](SageMakerModel.this.createEndpoint))
+        </td>
+      </tr><tr>
+        <td>
+          373
+        </td>
+        <td>
+          389
+        </td>
+        <td>
+          21227
+          -
+          21249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[String](SageMakerModel.this.createEndpoint)
+        </td>
+      </tr><tr>
+        <td>
+          374
+        </td>
+        <td>
+          391
+        </td>
+        <td>
+          21280
+          -
+          21303
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createdEndpointName.get
+        </td>
+      </tr><tr>
+        <td>
+          374
+        </td>
+        <td>
+          392
+        </td>
+        <td>
+          21256
+          -
+          21304
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.awaitEndpointCompletion
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.awaitEndpointCompletion(SageMakerModel.this.createdEndpointName.get)
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          394
+        </td>
+        <td>
+          21657
+          -
+          21761
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw com.amazonaws.services.sagemaker.sparksdk.exceptions.SageMakerSparkSDKException.apply(&quot;SageMaker resource creation failed.&quot;, t, SageMakerModel.this.getCreatedResources)
+        </td>
+      </tr><tr>
+        <td>
+          383
+        </td>
+        <td>
+          398
+        </td>
+        <td>
+          21776
+          -
+          21964
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val endpointCreationTime: Long = this.timeProvider.getElapsedTimeInSeconds(startingEndpointCreationTime);
+  SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Endpoint Creation Time: &quot;, &quot; s&quot;).s(endpointCreationTime))
+}
+        </td>
+      </tr><tr>
+        <td>
+          385
+        </td>
+        <td>
+          395
+        </td>
+        <td>
+          21811
+          -
+          21891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.getElapsedTimeInSeconds
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.getElapsedTimeInSeconds(startingEndpointCreationTime)
+        </td>
+      </tr><tr>
+        <td>
+          386
+        </td>
+        <td>
+          397
+        </td>
+        <td>
+          21898
+          -
+          21958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Endpoint Creation Time: &quot;, &quot; s&quot;).s(endpointCreationTime))
+        </td>
+      </tr><tr>
+        <td>
+          386
+        </td>
+        <td>
+          396
+        </td>
+        <td>
+          21907
+          -
+          21957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Endpoint Creation Time: &quot;, &quot; s&quot;).s(endpointCreationTime)
+        </td>
+      </tr><tr>
+        <td>
+          395
+        </td>
+        <td>
+          399
+        </td>
+        <td>
+          22185
+          -
+          22206
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createdModelName
+        </td>
+        <td style="background: #AEF1AE">
+          this.createdModelName
+        </td>
+      </tr><tr>
+        <td>
+          395
+        </td>
+        <td>
+          402
+        </td>
+        <td>
+          22168
+          -
+          22295
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.CreatedResources.apply
+        </td>
+        <td style="background: #AEF1AE">
+          CreatedResources.apply(this.createdModelName, this.createdEndpointConfigName, SageMakerModel.this.endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          396
+        </td>
+        <td>
+          400
+        </td>
+        <td>
+          22229
+          -
+          22259
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createdEndpointConfigName
+        </td>
+        <td style="background: #AEF1AE">
+          this.createdEndpointConfigName
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          401
+        </td>
+        <td>
+          22282
+          -
+          22294
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.endpointName
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointName
+        </td>
+      </tr><tr>
+        <td>
+          401
+        </td>
+        <td>
+          403
+        </td>
+        <td>
+          22360
+          -
+          22385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.NamePolicy.modelName
+        </td>
+        <td style="background: #AEF1AE">
+          this.namePolicy.modelName
+        </td>
+      </tr><tr>
+        <td>
+          404
+        </td>
+        <td>
+          404
+        </td>
+        <td>
+          22503
+          -
+          22517
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.modelImage.get
+        </td>
+      </tr><tr>
+        <td>
+          405
+        </td>
+        <td>
+          406
+        </td>
+        <td>
+          22544
+          -
+          22576
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[String, String](SageMakerModel.this.modelEnvironmentVariables).asJava
+        </td>
+      </tr><tr>
+        <td>
+          405
+        </td>
+        <td>
+          405
+        </td>
+        <td>
+          22544
+          -
+          22569
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.modelEnvironmentVariables
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.modelEnvironmentVariables
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          408
+        </td>
+        <td>
+          22416
+          -
+          22637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.ContainerDefinition.withModelDataUrl
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.ContainerDefinition().withContainerHostname(modelName).withImage(SageMakerModel.this.modelImage.get).withEnvironment(scala.collection.JavaConverters.mapAsJavaMapConverter[String, String](SageMakerModel.this.modelEnvironmentVariables).asJava).withModelDataUrl(this.modelPath.get.toS3UriString)
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          407
+        </td>
+        <td>
+          22604
+          -
+          22636
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.S3DataPath.toS3UriString
+        </td>
+        <td style="background: #AEF1AE">
+          this.modelPath.get.toS3UriString
+        </td>
+      </tr><tr>
+        <td>
+          410
+        </td>
+        <td>
+          409
+        </td>
+        <td>
+          22812
+          -
+          22812
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[Null]
+        </td>
+      </tr><tr>
+        <td>
+          410
+        </td>
+        <td>
+          411
+        </td>
+        <td>
+          22656
+          -
+          22819
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateModelRequest.withExecutionRoleArn
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.CreateModelRequest().withModelName(modelName).withPrimaryContainer(containerDefinition).withExecutionRoleArn(SageMakerModel.this.modelExecutionRoleARN.orNull[String](scala.this.Predef.$conforms[Null]))
+        </td>
+      </tr><tr>
+        <td>
+          410
+        </td>
+        <td>
+          410
+        </td>
+        <td>
+          22790
+          -
+          22818
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Option.orNull
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.modelExecutionRoleARN.orNull[String](scala.this.Predef.$conforms[Null])
+        </td>
+      </tr><tr>
+        <td>
+          411
+        </td>
+        <td>
+          412
+        </td>
+        <td>
+          22824
+          -
+          22861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(request)
+        </td>
+      </tr><tr>
+        <td>
+          412
+        </td>
+        <td>
+          415
+        </td>
+        <td>
+          22901
+          -
+          22917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateModelRequest.toString
+        </td>
+        <td style="background: #AEF1AE">
+          request.toString()
+        </td>
+      </tr><tr>
+        <td>
+          412
+        </td>
+        <td>
+          414
+        </td>
+        <td>
+          22918
+          -
+          22919
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          412
+        </td>
+        <td>
+          417
+        </td>
+        <td>
+          22866
+          -
+          22920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Create model request: &quot;, &quot;&quot;).s(request.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          412
+        </td>
+        <td>
+          413
+        </td>
+        <td>
+          22877
+          -
+          22900
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Create model request: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          412
+        </td>
+        <td>
+          416
+        </td>
+        <td>
+          22875
+          -
+          22919
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Create model request: &quot;, &quot;&quot;).s(request.toString())
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          418
+        </td>
+        <td>
+          22925
+          -
+          22961
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.createModel
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.sagemakerClient.createModel(request)
+        </td>
+      </tr><tr>
+        <td>
+          414
+        </td>
+        <td>
+          420
+        </td>
+        <td>
+          22966
+          -
+          23003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Created model &quot;, &quot;&quot;).s(modelName))
+        </td>
+      </tr><tr>
+        <td>
+          414
+        </td>
+        <td>
+          419
+        </td>
+        <td>
+          22975
+          -
+          23002
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Created model &quot;, &quot;&quot;).s(modelName)
+        </td>
+      </tr><tr>
+        <td>
+          420
+        </td>
+        <td>
+          421
+        </td>
+        <td>
+          23177
+          -
+          23190
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;AllRequests&quot;
+        </td>
+      </tr><tr>
+        <td>
+          423
+        </td>
+        <td>
+          422
+        </td>
+        <td>
+          23269
+          -
+          23303
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.NamePolicy.endpointConfigName
+        </td>
+        <td style="background: #AEF1AE">
+          this.namePolicy.endpointConfigName
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          423
+        </td>
+        <td>
+          23332
+          -
+          23563
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.ProductionVariant.withVariantName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.ProductionVariant().withModelName(this.namePolicy.modelName).withInstanceType(SageMakerModel.this.endpointInstanceType.get).withInitialInstanceCount(scala.this.Predef.int2Integer(SageMakerModel.this.endpointInitialInstanceCount.get)).withVariantName(&quot;AllRequests&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          432
+        </td>
+        <td>
+          424
+        </td>
+        <td>
+          23745
+          -
+          23779
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.NamePolicy.endpointConfigName
+        </td>
+        <td style="background: #AEF1AE">
+          this.namePolicy.endpointConfigName
+        </td>
+      </tr><tr>
+        <td>
+          432
+        </td>
+        <td>
+          425
+        </td>
+        <td>
+          23582
+          -
+          23780
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateEndpointConfigRequest.withEndpointConfigName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.CreateEndpointConfigRequest().withEndpointConfigName(endpointConfigName).withProductionVariants(productionVariant).withEndpointConfigName(this.namePolicy.endpointConfigName)
+        </td>
+      </tr><tr>
+        <td>
+          433
+        </td>
+        <td>
+          426
+        </td>
+        <td>
+          23785
+          -
+          23822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(request)
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          427
+        </td>
+        <td>
+          23838
+          -
+          23870
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Create EndpointConfig request: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          430
+        </td>
+        <td>
+          23836
+          -
+          23889
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Create EndpointConfig request: &quot;, &quot;&quot;).s(request.toString())
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          429
+        </td>
+        <td>
+          23871
+          -
+          23887
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateEndpointConfigRequest.toString
+        </td>
+        <td style="background: #AEF1AE">
+          request.toString()
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          428
+        </td>
+        <td>
+          23888
+          -
+          23889
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          431
+        </td>
+        <td>
+          23827
+          -
+          23890
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Create EndpointConfig request: &quot;, &quot;&quot;).s(request.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          435
+        </td>
+        <td>
+          432
+        </td>
+        <td>
+          23895
+          -
+          23940
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.createEndpointConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.sagemakerClient.createEndpointConfig(request)
+        </td>
+      </tr><tr>
+        <td>
+          436
+        </td>
+        <td>
+          433
+        </td>
+        <td>
+          23954
+          -
+          24000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Created endpoint config &quot;, &quot;&quot;).s(endpointConfigName)
+        </td>
+      </tr><tr>
+        <td>
+          436
+        </td>
+        <td>
+          434
+        </td>
+        <td>
+          23945
+          -
+          24001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Created endpoint config &quot;, &quot;&quot;).s(endpointConfigName))
+        </td>
+      </tr><tr>
+        <td>
+          441
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          24095
+          -
+          24123
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.NamePolicy.endpointName
+        </td>
+        <td style="background: #AEF1AE">
+          this.namePolicy.endpointName
+        </td>
+      </tr><tr>
+        <td>
+          444
+        </td>
+        <td>
+          436
+        </td>
+        <td>
+          24142
+          -
+          24273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateEndpointRequest.withEndpointName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.CreateEndpointRequest().withEndpointConfigName(this.namePolicy.endpointConfigName).withEndpointName(endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          445
+        </td>
+        <td>
+          437
+        </td>
+        <td>
+          24278
+          -
+          24315
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(request)
+        </td>
+      </tr><tr>
+        <td>
+          446
+        </td>
+        <td>
+          442
+        </td>
+        <td>
+          24320
+          -
+          24377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Create Endpoint request: &quot;, &quot;&quot;).s(request.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          446
+        </td>
+        <td>
+          439
+        </td>
+        <td>
+          24375
+          -
+          24376
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          446
+        </td>
+        <td>
+          438
+        </td>
+        <td>
+          24331
+          -
+          24357
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Create Endpoint request: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          446
+        </td>
+        <td>
+          441
+        </td>
+        <td>
+          24329
+          -
+          24376
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Create Endpoint request: &quot;, &quot;&quot;).s(request.toString())
+        </td>
+      </tr><tr>
+        <td>
+          446
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          24358
+          -
+          24374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.CreateEndpointRequest.toString
+        </td>
+        <td style="background: #AEF1AE">
+          request.toString()
+        </td>
+      </tr><tr>
+        <td>
+          447
+        </td>
+        <td>
+          443
+        </td>
+        <td>
+          24382
+          -
+          24421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.createEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.sagemakerClient.createEndpoint(request)
+        </td>
+      </tr><tr>
+        <td>
+          448
+        </td>
+        <td>
+          445
+        </td>
+        <td>
+          24426
+          -
+          24469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Created endpoint &quot;, &quot;&quot;).s(endpointName))
+        </td>
+      </tr><tr>
+        <td>
+          448
+        </td>
+        <td>
+          444
+        </td>
+        <td>
+          24435
+          -
+          24468
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Created endpoint &quot;, &quot;&quot;).s(endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          453
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          24584
+          -
+          24619
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.currentTimeMillis
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis
+        </td>
+      </tr><tr>
+        <td>
+          454
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          24654
+          -
+          24714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointRequest.withEndpointName
+        </td>
+        <td style="background: #AEF1AE">
+          new com.amazonaws.services.sagemaker.model.DescribeEndpointRequest().withEndpointName(endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          455
+        </td>
+        <td>
+          448
+        </td>
+        <td>
+          24719
+          -
+          24772
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.internal.InternalUtils.applyUserAgent(describeEndpointRequest)
+        </td>
+      </tr><tr>
+        <td>
+          456
+        </td>
+        <td>
+          450
+        </td>
+        <td>
+          24777
+          -
+          24854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Begin waiting for endpoint completion for endpoint &quot;, &quot;&quot;).s(endpointName))
+        </td>
+      </tr><tr>
+        <td>
+          456
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          24786
+          -
+          24853
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Begin waiting for endpoint completion for endpoint &quot;, &quot;&quot;).s(endpointName)
+        </td>
+      </tr><tr>
+        <td>
+          457
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          24971
+          -
+          25903
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    try {
+      val response: com.amazonaws.services.sagemaker.model.DescribeEndpointResult = SageMakerModel.this.sagemakerClient.describeEndpoint(describeEndpointRequest);
+      val currentStatus: com.amazonaws.services.sagemaker.model.EndpointStatus = com.amazonaws.services.sagemaker.model.EndpointStatus.fromValue(response.getEndpointStatus());
+      SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Endpoint creation status: &quot;, &quot;&quot;).s(currentStatus));
+      currentStatus match {
+        case InService =&gt; return ()
+        case Failed =&gt; {
+          val message: String = scala.StringContext.apply(&quot;Endpoint \'&quot;, &quot;\' failed for reason:&quot;).s(endpointName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason()));
+          throw new scala.`package`.RuntimeException(message)
+        }
+        case _ =&gt; ()
+      }
+    } catch {
+      case (e @ (_: com.amazonaws.SdkBaseException)) =&gt; {
+        if (com.amazonaws.retry.RetryUtils.isRetryableServiceException(e).unary_!)
+          throw e
+        else
+          ();
+        SageMakerModel.this.log.warn(scala.StringContext.apply(&quot;Retryable exception: &quot;, &quot;&quot;).s(e.getMessage()))
+      }
+      case (t @ (_: Throwable)) =&gt; throw t
+    };
+    SageMakerModel.this.timeProvider.sleep(SageMakerModel.EndpointPollInterval.toMillis())
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          457
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          24866
+          -
+          24969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;
+        </td>
+        <td style="background: #AEF1AE">
+          this.timeProvider.currentTimeMillis.-(startTime).&lt;(SageMakerModel.EndpointCreationTimeout.toMillis())
+        </td>
+      </tr><tr>
+        <td>
+          457
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          24859
+          -
+          24859
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          457
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          24859
+          -
+          24859
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          458
+        </td>
+        <td>
+          451
+        </td>
+        <td>
+          24922
+          -
+          24969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.toMillis
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.EndpointCreationTimeout.toMillis()
+        </td>
+      </tr><tr>
+        <td>
+          458
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          24971
+          -
+          24971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          459
+        </td>
+        <td>
+          468
+        </td>
+        <td>
+          24993
+          -
+          25574
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val response: com.amazonaws.services.sagemaker.model.DescribeEndpointResult = SageMakerModel.this.sagemakerClient.describeEndpoint(describeEndpointRequest);
+  val currentStatus: com.amazonaws.services.sagemaker.model.EndpointStatus = com.amazonaws.services.sagemaker.model.EndpointStatus.fromValue(response.getEndpointStatus());
+  SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Endpoint creation status: &quot;, &quot;&quot;).s(currentStatus));
+  currentStatus match {
+    case InService =&gt; return ()
+    case Failed =&gt; {
+      val message: String = scala.StringContext.apply(&quot;Endpoint \'&quot;, &quot;\' failed for reason:&quot;).s(endpointName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason()));
+      throw new scala.`package`.RuntimeException(message)
+    }
+    case _ =&gt; ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          460
+        </td>
+        <td>
+          453
+        </td>
+        <td>
+          25008
+          -
+          25065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.AmazonSageMaker.describeEndpoint
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.sagemakerClient.describeEndpoint(describeEndpointRequest)
+        </td>
+      </tr><tr>
+        <td>
+          461
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          25119
+          -
+          25145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointResult.getEndpointStatus
+        </td>
+        <td style="background: #AEF1AE">
+          response.getEndpointStatus()
+        </td>
+      </tr><tr>
+        <td>
+          461
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          25094
+          -
+          25146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.EndpointStatus.fromValue
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.model.EndpointStatus.fromValue(response.getEndpointStatus())
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          457
+        </td>
+        <td>
+          25155
+          -
+          25208
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.info(scala.StringContext.apply(&quot;Endpoint creation status: &quot;, &quot;&quot;).s(currentStatus))
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          25164
+          -
+          25207
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Endpoint creation status: &quot;, &quot;&quot;).s(currentStatus)
+        </td>
+      </tr><tr>
+        <td>
+          464
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          25282
+          -
+          25288
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          466
+        </td>
+        <td>
+          460
+        </td>
+        <td>
+          25380
+          -
+          25401
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\' failed for reason:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          466
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          25355
+          -
+          25452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Endpoint \'&quot;, &quot;\' failed for reason:&quot;).s(endpointName).+(scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason()))
+        </td>
+      </tr><tr>
+        <td>
+          466
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          25357
+          -
+          25368
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Endpoint \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          463
+        </td>
+        <td>
+          25424
+          -
+          25449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.model.DescribeEndpointResult.getFailureReason
+        </td>
+        <td style="background: #AEF1AE">
+          response.getFailureReason()
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          25450
+          -
+          25452
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          25420
+          -
+          25423
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          467
+        </td>
+        <td>
+          464
+        </td>
+        <td>
+          25418
+          -
+          25452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot; \'&quot;, &quot;\'&quot;).s(response.getFailureReason())
+        </td>
+      </tr><tr>
+        <td>
+          468
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          25465
+          -
+          25500
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(message)
+        </td>
+      </tr><tr>
+        <td>
+          469
+        </td>
+        <td>
+          467
+        </td>
+        <td>
+          25518
+          -
+          25520
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          473
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          25642
+          -
+          25684
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.retry.RetryUtils.isRetryableServiceException(e).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          473
+        </td>
+        <td>
+          472
+        </td>
+        <td>
+          25638
+          -
+          25638
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          473
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          25638
+          -
+          25638
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          474
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          25700
+          -
+          25707
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          474
+        </td>
+        <td>
+          470
+        </td>
+        <td>
+          25700
+          -
+          25707
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          476
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          25730
+          -
+          25779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.log.warn(scala.StringContext.apply(&quot;Retryable exception: &quot;, &quot;&quot;).s(e.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          476
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          25741
+          -
+          25763
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Retryable exception: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          476
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          25739
+          -
+          25778
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Retryable exception: &quot;, &quot;&quot;).s(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          476
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          25764
+          -
+          25776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #AEF1AE">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          476
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          25777
+          -
+          25778
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          477
+        </td>
+        <td>
+          479
+        </td>
+        <td>
+          25810
+          -
+          25817
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw t
+        </td>
+      </tr><tr>
+        <td>
+          480
+        </td>
+        <td>
+          481
+        </td>
+        <td>
+          25833
+          -
+          25897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.internal.TimeProvider.sleep
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.timeProvider.sleep(SageMakerModel.EndpointPollInterval.toMillis())
+        </td>
+      </tr><tr>
+        <td>
+          480
+        </td>
+        <td>
+          480
+        </td>
+        <td>
+          25852
+          -
+          25896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.toMillis
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.EndpointPollInterval.toMillis()
+        </td>
+      </tr><tr>
+        <td>
+          483
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          25909
+          -
+          26088
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(scala.StringContext.apply(&quot;Timed out after &quot;, &quot;&quot;).s(SageMakerModel.EndpointCreationTimeout.toString()).+(scala.StringContext.apply(&quot; while waiting for Endpoint \'&quot;, &quot;\' to finish creating.&quot;).s(endpointName)))
+        </td>
+      </tr><tr>
+        <td>
+          499
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          26587
+          -
+          26629
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.CREATE_ON_TRANSFORM
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.CREATE_ON_TRANSFORM
+        </td>
+      </tr><tr>
+        <td>
+          499
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          26561
+          -
+          26661
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointCreationPolicy.==(EndpointCreationPolicy.CREATE_ON_TRANSFORM).&amp;&amp;(SageMakerModel.this.endpointName.isEmpty)
+        </td>
+      </tr><tr>
+        <td>
+          499
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          26557
+          -
+          26557
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          499
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          26557
+          -
+          26557
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          500
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          26641
+          -
+          26661
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointName.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          501
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          26671
+          -
+          26704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createSageMakerHostingResources
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createSageMakerHostingResources()
+        </td>
+      </tr><tr>
+        <td>
+          501
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          26671
+          -
+          26704
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.createSageMakerHostingResources
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.createSageMakerHostingResources()
+        </td>
+      </tr><tr>
+        <td>
+          503
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          26731
+          -
+          26745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.toDF
+        </td>
+        <td style="background: #AEF1AE">
+          dataset.toDF()
+        </td>
+      </tr><tr>
+        <td>
+          504
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          26750
+          -
+          26798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.setSchema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.requestRowSerializer.setSchema(dataFrame.schema)
+        </td>
+      </tr><tr>
+        <td>
+          504
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          26781
+          -
+          26797
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.schema
+        </td>
+        <td style="background: #AEF1AE">
+          dataFrame.schema
+        </td>
+      </tr><tr>
+        <td>
+          505
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          26822
+          -
+          26855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.transformSchema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.transformSchema(dataFrame.schema)
+        </td>
+      </tr><tr>
+        <td>
+          505
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          26838
+          -
+          26854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.schema
+        </td>
+        <td style="background: #AEF1AE">
+          dataFrame.schema
+        </td>
+      </tr><tr>
+        <td>
+          507
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          26869
+          -
+          26890
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.nonEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointName.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          507
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          26861
+          -
+          26974
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(SageMakerModel.this.endpointName.nonEmpty, &quot;Endpoint name is empty. Create an endpoint to set the endpoint name.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          507
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          26892
+          -
+          26973
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Endpoint name is empty. Create an endpoint to set the endpoint name.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          510
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          27098
+          -
+          27118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.requestRowSerializer
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.requestRowSerializer
+        </td>
+      </tr><tr>
+        <td>
+          510
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          27018
+          -
+          27171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.util.RequestBatchIteratorFactory.createRequestBatchIterator
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.transformation.util.RequestBatchIteratorFactory.createRequestBatchIterator(SageMakerModel.this.endpointName.get, SageMakerModel.this.requestRowSerializer, SageMakerModel.this.responseRowDeserializer, SageMakerModel.this.prependResultRows)
+        </td>
+      </tr><tr>
+        <td>
+          510
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          27080
+          -
+          27096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.endpointName.get
+        </td>
+      </tr><tr>
+        <td>
+          511
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          27153
+          -
+          27170
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.prependResultRows
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.prependResultRows
+        </td>
+      </tr><tr>
+        <td>
+          511
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          26994
+          -
+          27198
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.mapPartitions
+        </td>
+        <td style="background: #AEF1AE">
+          dataFrame.mapPartitions[org.apache.spark.sql.Row](com.amazonaws.services.sagemaker.sparksdk.transformation.util.RequestBatchIteratorFactory.createRequestBatchIterator(SageMakerModel.this.endpointName.get, SageMakerModel.this.requestRowSerializer, SageMakerModel.this.responseRowDeserializer, SageMakerModel.this.prependResultRows))(org.apache.spark.sql.catalyst.encoders.RowEncoder.apply(resultSchema))
+        </td>
+      </tr><tr>
+        <td>
+          511
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          27173
+          -
+          27197
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.RowEncoder.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.encoders.RowEncoder.apply(resultSchema)
+        </td>
+      </tr><tr>
+        <td>
+          511
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          27128
+          -
+          27151
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.responseRowDeserializer
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.responseRowDeserializer
+        </td>
+      </tr><tr>
+        <td>
+          531
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          27888
+          -
+          27931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer.validateSchema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.requestRowSerializer.validateSchema(schema)
+        </td>
+      </tr><tr>
+        <td>
+          533
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          27941
+          -
+          27958
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.prependResultRows
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.prependResultRows
+        </td>
+      </tr><tr>
+        <td>
+          534
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          27968
+          -
+          28038
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.types.StructType(schema.++[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](SageMakerModel.this.responseRowDeserializer.schema)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]).seq.toArray[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          534
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          27984
+          -
+          28037
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td style="background: #AEF1AE">
+          schema.++[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](SageMakerModel.this.responseRowDeserializer.schema)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]).seq.toArray[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          534
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          27991
+          -
+          27991
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          534
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          27968
+          -
+          28038
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.types.StructType(schema.++[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](SageMakerModel.this.responseRowDeserializer.schema)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]).seq.toArray[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          534
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          27994
+          -
+          28024
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer.schema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.responseRowDeserializer.schema
+        </td>
+      </tr><tr>
+        <td>
+          536
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          28058
+          -
+          28088
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer.schema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.responseRowDeserializer.schema
+        </td>
+      </tr><tr>
+        <td>
+          536
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          28058
+          -
+          28088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer.schema
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.responseRowDeserializer.schema
+        </td>
+      </tr><tr>
+        <td>
+          553
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          28627
+          -
+          28650
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Option]
+        </td>
+      </tr><tr>
+        <td>
+          554
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          28658
+          -
+          28678
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Option]
+        </td>
+      </tr><tr>
+        <td>
+          555
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          28686
+          -
+          28715
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer]
+        </td>
+      </tr><tr>
+        <td>
+          556
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          28723
+          -
+          28755
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer]
+        </td>
+      </tr><tr>
+        <td>
+          557
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          28763
+          -
+          28786
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Option]
+        </td>
+      </tr><tr>
+        <td>
+          558
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          28794
+          -
+          28817
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Option]
+        </td>
+      </tr><tr>
+        <td>
+          559
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          28825
+          -
+          28848
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Option]
+        </td>
+      </tr><tr>
+        <td>
+          560
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          28856
+          -
+          28884
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.collection.immutable.Map]
+        </td>
+      </tr><tr>
+        <td>
+          561
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          28892
+          -
+          28915
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Option]
+        </td>
+      </tr><tr>
+        <td>
+          562
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          28923
+          -
+          28954
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Enumeration$Value]
+        </td>
+      </tr><tr>
+        <td>
+          563
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          28962
+          -
+          28986
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.amazonaws.services.sagemaker.AmazonSageMaker]
+        </td>
+      </tr><tr>
+        <td>
+          564
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          28994
+          -
+          29010
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          565
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          29018
+          -
+          29037
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.amazonaws.services.sagemaker.sparksdk.NamePolicy]
+        </td>
+      </tr><tr>
+        <td>
+          566
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          29045
+          -
+          29060
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[java.lang.String]
+        </td>
+      </tr><tr>
+        <td>
+          566
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          28591
+          -
+          29518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.reflect.Constructor.newInstance
+        </td>
+        <td style="background: #AEF1AE">
+          this.getClass().getConstructor(classOf[scala.Option], classOf[scala.Option], classOf[com.amazonaws.services.sagemaker.sparksdk.transformation.RequestRowSerializer], classOf[com.amazonaws.services.sagemaker.sparksdk.transformation.ResponseRowDeserializer], classOf[scala.Option], classOf[scala.Option], classOf[scala.Option], classOf[scala.collection.immutable.Map], classOf[scala.Option], classOf[scala.Enumeration$Value], classOf[com.amazonaws.services.sagemaker.AmazonSageMaker], classOf[scala.Boolean], classOf[com.amazonaws.services.sagemaker.sparksdk.NamePolicy], classOf[java.lang.String]).newInstance(this.endpointInstanceType, this.endpointInitialInstanceCount, this.requestRowSerializer, this.responseRowDeserializer, this.endpointName, this.modelImage, this.modelPath, this.modelEnvironmentVariables, this.modelExecutionRoleARN, EndpointCreationPolicy.DO_NOT_CREATE, this.sagemakerClient, scala.Boolean.box(this.prependResultRows), this.namePolicy, this.uid)
+        </td>
+      </tr><tr>
+        <td>
+          567
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          29081
+          -
+          29106
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.endpointInstanceType
+        </td>
+        <td style="background: #AEF1AE">
+          this.endpointInstanceType
+        </td>
+      </tr><tr>
+        <td>
+          568
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          29114
+          -
+          29147
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.endpointInitialInstanceCount
+        </td>
+        <td style="background: #AEF1AE">
+          this.endpointInitialInstanceCount
+        </td>
+      </tr><tr>
+        <td>
+          569
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          29155
+          -
+          29180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.requestRowSerializer
+        </td>
+        <td style="background: #AEF1AE">
+          this.requestRowSerializer
+        </td>
+      </tr><tr>
+        <td>
+          570
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          29188
+          -
+          29216
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.responseRowDeserializer
+        </td>
+        <td style="background: #AEF1AE">
+          this.responseRowDeserializer
+        </td>
+      </tr><tr>
+        <td>
+          571
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          29224
+          -
+          29241
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.endpointName
+        </td>
+        <td style="background: #AEF1AE">
+          this.endpointName
+        </td>
+      </tr><tr>
+        <td>
+          572
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          29249
+          -
+          29264
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.modelImage
+        </td>
+        <td style="background: #AEF1AE">
+          this.modelImage
+        </td>
+      </tr><tr>
+        <td>
+          573
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          29272
+          -
+          29286
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.modelPath
+        </td>
+        <td style="background: #AEF1AE">
+          this.modelPath
+        </td>
+      </tr><tr>
+        <td>
+          574
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          29294
+          -
+          29324
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.modelEnvironmentVariables
+        </td>
+        <td style="background: #AEF1AE">
+          this.modelEnvironmentVariables
+        </td>
+      </tr><tr>
+        <td>
+          575
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          29332
+          -
+          29358
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.modelExecutionRoleARN
+        </td>
+        <td style="background: #AEF1AE">
+          this.modelExecutionRoleARN
+        </td>
+      </tr><tr>
+        <td>
+          576
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          29366
+          -
+          29402
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+        <td style="background: #AEF1AE">
+          EndpointCreationPolicy.DO_NOT_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          577
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          29410
+          -
+          29430
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.sagemakerClient
+        </td>
+        <td style="background: #AEF1AE">
+          this.sagemakerClient
+        </td>
+      </tr><tr>
+        <td>
+          578
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          29450
+          -
+          29472
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.prependResultRows
+        </td>
+        <td style="background: #AEF1AE">
+          this.prependResultRows
+        </td>
+      </tr><tr>
+        <td>
+          578
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          29438
+          -
+          29473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.box
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Boolean.box(this.prependResultRows)
+        </td>
+      </tr><tr>
+        <td>
+          579
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          29481
+          -
+          29496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.namePolicy
+        </td>
+        <td style="background: #AEF1AE">
+          this.namePolicy
+        </td>
+      </tr><tr>
+        <td>
+          580
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          29504
+          -
+          29512
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.SageMakerModel.uid
+        </td>
+        <td style="background: #AEF1AE">
+          this.uid
+        </td>
+      </tr><tr>
+        <td>
+          582
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          29523
+          -
+          29546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.param.Params.copyValues
+        </td>
+        <td style="background: #AEF1AE">
+          SageMakerModel.this.copyValues[com.amazonaws.services.sagemaker.sparksdk.SageMakerModel](that, extra)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

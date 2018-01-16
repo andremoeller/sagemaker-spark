@@ -1,0 +1,407 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/deserializers/XGBoostCSVRowDeserializer.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.spark.sql.Row
+</span>19 <span style=''>import org.apache.spark.sql.types.{DoubleType, StructField, StructType}
+</span>20 <span style=''>
+</span>21 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{ContentTypes, ResponseRowDeserializer}
+</span>22 <span style=''>
+</span>23 <span style=''>/**
+</span>24 <span style=''>  * A [[ResponseRowDeserializer]] for converting a comma-delimited string of predictions to
+</span>25 <span style=''>  * labeled Vectors.
+</span>26 <span style=''>  *
+</span>27 <span style=''>  * @param predictionColumnName the name of the output predictions column.
+</span>28 <span style=''>  */
+</span>29 <span style=''>class XGBoostCSVRowDeserializer(val predictionColumnName : String = &quot;prediction&quot;)
+</span>30 <span style=''>  extends ResponseRowDeserializer {
+</span>31 <span style=''>
+</span>32 <span style=''>  /**
+</span>33 <span style=''>    * Deserialize a SageMaker response to an a series of objects.
+</span>34 <span style=''>    *
+</span>35 <span style=''>    * @param responseData The Array[Byte] containing the SageMaker response
+</span>36 <span style=''>    * @return An Iterator over deserialized response objects
+</span>37 <span style=''>    */
+</span>38 <span style=''>  override def deserializeResponse(responseData: Array[Byte]): Iterator[Row] = {
+</span>39 <span style=''>    // Response is a comma-delimited string of predictions
+</span>40 <span style=''>    val stringResponse = </span><span style='background: #F0ADAD'>new String(responseData)</span><span style=''>
+</span>41 <span style=''>    </span><span style='background: #F0ADAD'>stringResponse.trim.split(&quot;,&quot;).map((s: String) =&gt; Row(s.toDouble)).toIterator</span><span style=''>
+</span>42 <span style=''>  }
+</span>43 <span style=''>
+</span>44 <span style=''>  /**
+</span>45 <span style=''>    * Returns [[com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.CSV]]
+</span>46 <span style=''>    */
+</span>47 <span style=''>  override val accepts: String = </span><span style='background: #AEF1AE'>ContentTypes.CSV</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>  override val schema: StructType = </span><span style='background: #AEF1AE'>StructType(
+</span>50 <span style=''></span><span style='background: #AEF1AE'>    Array(StructField(predictionColumnName, DoubleType, nullable = false)))</span><span style=''>
+</span>51 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1821
+        </td>
+        <td>
+          1580
+          -
+          1604
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.this.Predef.String(responseData)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1824
+        </td>
+        <td>
+          1659
+          -
+          1674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Row.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Row.apply(scala.this.Predef.augmentString(s).toDouble)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1823
+        </td>
+        <td>
+          1663
+          -
+          1673
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toDouble
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(s).toDouble
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1826
+        </td>
+        <td>
+          1609
+          -
+          1675
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[String](stringResponse.trim().split(&quot;,&quot;)).map[org.apache.spark.sql.Row, Array[org.apache.spark.sql.Row]](((s: String) =&gt; org.apache.spark.sql.Row.apply(scala.this.Predef.augmentString(s).toDouble)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.Row]((ClassTag.apply[org.apache.spark.sql.Row](classOf[org.apache.spark.sql.Row]): scala.reflect.ClassTag[org.apache.spark.sql.Row])))
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1822
+        </td>
+        <td>
+          1609
+          -
+          1639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          stringResponse.trim().split(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1825
+        </td>
+        <td>
+          1643
+          -
+          1643
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.Row]((ClassTag.apply[org.apache.spark.sql.Row](classOf[org.apache.spark.sql.Row]): scala.reflect.ClassTag[org.apache.spark.sql.Row]))
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1827
+        </td>
+        <td>
+          1609
+          -
+          1686
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.toIterator
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[org.apache.spark.sql.Row](scala.this.Predef.refArrayOps[String](stringResponse.trim().split(&quot;,&quot;)).map[org.apache.spark.sql.Row, Array[org.apache.spark.sql.Row]](((s: String) =&gt; org.apache.spark.sql.Row.apply(scala.this.Predef.augmentString(s).toDouble)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.Row]((ClassTag.apply[org.apache.spark.sql.Row](classOf[org.apache.spark.sql.Row]): scala.reflect.ClassTag[org.apache.spark.sql.Row])))).toIterator
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1828
+        </td>
+        <td>
+          1830
+          -
+          1846
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.CSV
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.transformation.`package`.ContentTypes.CSV
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1835
+        </td>
+        <td>
+          1884
+          -
+          1971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.Array.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(XGBoostCSVRowDeserializer.this.predictionColumnName, org.apache.spark.sql.types.DoubleType, false, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1833
+        </td>
+        <td>
+          1906
+          -
+          1969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(XGBoostCSVRowDeserializer.this.predictionColumnName, org.apache.spark.sql.types.DoubleType, false, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1832
+        </td>
+        <td>
+          1906
+          -
+          1906
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1829
+        </td>
+        <td>
+          1918
+          -
+          1938
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.XGBoostCSVRowDeserializer.predictionColumnName
+        </td>
+        <td style="background: #AEF1AE">
+          XGBoostCSVRowDeserializer.this.predictionColumnName
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1831
+        </td>
+        <td>
+          1963
+          -
+          1968
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1834
+        </td>
+        <td>
+          1900
+          -
+          1970
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(XGBoostCSVRowDeserializer.this.predictionColumnName, org.apache.spark.sql.types.DoubleType, false, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1830
+        </td>
+        <td>
+          1940
+          -
+          1950
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

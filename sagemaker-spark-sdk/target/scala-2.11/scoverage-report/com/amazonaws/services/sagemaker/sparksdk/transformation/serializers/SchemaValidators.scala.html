@@ -1,0 +1,502 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/serializers/SchemaValidators.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation.serializers
+</span>17 <span style=''>
+</span>18 <span style=''>import org.apache.spark.ml.linalg.SQLDataTypes
+</span>19 <span style=''>import org.apache.spark.sql.types.{DoubleType, StructType}
+</span>20 <span style=''>
+</span>21 <span style=''>private[serializers] object SchemaValidators {
+</span>22 <span style=''>  def labeledSchemaValidator(schema: StructType,
+</span>23 <span style=''>                             labelColumnName: String,
+</span>24 <span style=''>                             featuresColumnName: String): Unit = {
+</span>25 <span style=''>    if (
+</span>26 <span style=''>      </span><span style='background: #AEF1AE'>!schema.exists(f =&gt; f.name == labelColumnName &amp;&amp; f.dataType == DoubleType) ||
+</span>27 <span style=''></span><span style='background: #AEF1AE'>      !schema.exists(f =&gt; f.name == featuresColumnName &amp;&amp; f.dataType == SQLDataTypes.VectorType)</span><span style=''>) {
+</span>28 <span style=''>      </span><span style='background: #AEF1AE'>throw new IllegalArgumentException(s&quot;Expecting schema with DoubleType column with name &quot; +
+</span>29 <span style=''></span><span style='background: #AEF1AE'>        s&quot;$labelColumnName and Vector column with name $featuresColumnName. Got ${schema.toString}&quot;)</span><span style=''>
+</span>30 <span style=''>    }
+</span>31 <span style=''>  }
+</span>32 <span style=''>
+</span>33 <span style=''>  def unlabeledSchemaValidator(schema: StructType, featuresColumnName: String): Unit = {
+</span>34 <span style=''>    if (</span><span style='background: #AEF1AE'>!schema.exists(f =&gt; f.name == featuresColumnName &amp;&amp;
+</span>35 <span style=''></span><span style='background: #AEF1AE'>      f.dataType == SQLDataTypes.VectorType)</span><span style=''>) {
+</span>36 <span style=''>      </span><span style='background: #AEF1AE'>throw new IllegalArgumentException(
+</span>37 <span style=''></span><span style='background: #AEF1AE'>        s&quot;Expecting schema with Vector column with name&quot; +
+</span>38 <span style=''></span><span style='background: #AEF1AE'>        s&quot; $featuresColumnName. Got ${schema.toString}&quot;)</span><span style=''>
+</span>39 <span style=''>    }
+</span>40 <span style=''>  }
+</span>41 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1898
+        </td>
+        <td>
+          989
+          -
+          989
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1899
+        </td>
+        <td>
+          989
+          -
+          989
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1895
+        </td>
+        <td>
+          1000
+          -
+          1174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          schema.exists(((f: org.apache.spark.sql.types.StructField) =&gt; f.name.==(labelColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.sql.types.DoubleType)))).unary_!.||(schema.exists(((f: org.apache.spark.sql.types.StructField) =&gt; f.name.==(featuresColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType)))).unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1889
+        </td>
+        <td>
+          1049
+          -
+          1073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType.==(org.apache.spark.sql.types.DoubleType)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1888
+        </td>
+        <td>
+          1063
+          -
+          1073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1890
+        </td>
+        <td>
+          1020
+          -
+          1073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          f.name.==(labelColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.sql.types.DoubleType))
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1892
+        </td>
+        <td>
+          1136
+          -
+          1173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1891
+        </td>
+        <td>
+          1150
+          -
+          1173
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1894
+        </td>
+        <td>
+          1084
+          -
+          1174
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          schema.exists(((f: org.apache.spark.sql.types.StructField) =&gt; f.name.==(featuresColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType)))).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1893
+        </td>
+        <td>
+          1104
+          -
+          1173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          f.name.==(featuresColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType))
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1897
+        </td>
+        <td>
+          1184
+          -
+          1375
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Expecting schema with DoubleType column with name &quot;).s().+(scala.StringContext.apply(&quot;&quot;, &quot; and Vector column with name &quot;, &quot;. Got &quot;, &quot;&quot;).s(labelColumnName, featuresColumnName, schema.toString())))
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1896
+        </td>
+        <td>
+          1184
+          -
+          1375
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Expecting schema with DoubleType column with name &quot;).s().+(scala.StringContext.apply(&quot;&quot;, &quot; and Vector column with name &quot;, &quot;. Got &quot;, &quot;&quot;).s(labelColumnName, featuresColumnName, schema.toString())))
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1907
+        </td>
+        <td>
+          1480
+          -
+          1480
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1906
+        </td>
+        <td>
+          1480
+          -
+          1480
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1903
+        </td>
+        <td>
+          1484
+          -
+          1580
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          schema.exists(((f: org.apache.spark.sql.types.StructField) =&gt; f.name.==(featuresColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType)))).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1902
+        </td>
+        <td>
+          1504
+          -
+          1579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          f.name.==(featuresColumnName).&amp;&amp;(f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1901
+        </td>
+        <td>
+          1542
+          -
+          1579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType.==(org.apache.spark.ml.linalg.SQLDataTypes.VectorType)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1900
+        </td>
+        <td>
+          1556
+          -
+          1579
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1904
+        </td>
+        <td>
+          1590
+          -
+          1741
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Expecting schema with Vector column with name&quot;).s().+(scala.StringContext.apply(&quot; &quot;, &quot;. Got &quot;, &quot;&quot;).s(featuresColumnName, schema.toString())))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1905
+        </td>
+        <td>
+          1590
+          -
+          1741
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Expecting schema with Vector column with name&quot;).s().+(scala.StringContext.apply(&quot; &quot;, &quot;. Got &quot;, &quot;&quot;).s(featuresColumnName, schema.toString())))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

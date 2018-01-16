@@ -1,0 +1,1637 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/amazonaws/services/sagemaker/sparksdk/transformation/deserializers/ProtobufResponseRowDeserializer.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+</span>3 <span style=''> *
+</span>4 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;).
+</span>5 <span style=''> * You may not use this file except in compliance with the License.
+</span>6 <span style=''> * A copy of the License is located at
+</span>7 <span style=''> *
+</span>8 <span style=''> *   http://aws.amazon.com/apache2.0/
+</span>9 <span style=''> *
+</span>10 <span style=''> * or in the &quot;license&quot; file accompanying this file. This file is distributed
+</span>11 <span style=''> * on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+</span>12 <span style=''> * express or implied. See the License for the specific language governing
+</span>13 <span style=''> * permissions and limitations under the License.
+</span>14 <span style=''> */
+</span>15 <span style=''>
+</span>16 <span style=''>package com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers
+</span>17 <span style=''>
+</span>18 <span style=''>import scala.collection.JavaConverters._
+</span>19 <span style=''>import scala.collection.mutable
+</span>20 <span style=''>import scala.collection.mutable.ListBuffer
+</span>21 <span style=''>
+</span>22 <span style=''>import aialgorithms.proto2.RecordProto2.{Float32Tensor, MapEntry, Record, Value}
+</span>23 <span style=''>
+</span>24 <span style=''>import org.apache.spark.ml.linalg.{DenseVector, SparseVector}
+</span>25 <span style=''>import org.apache.spark.ml.linalg.SQLDataTypes.VectorType
+</span>26 <span style=''>import org.apache.spark.sql.Row
+</span>27 <span style=''>import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
+</span>28 <span style=''>import org.apache.spark.sql.types._
+</span>29 <span style=''>
+</span>30 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter
+</span>31 <span style=''>import com.amazonaws.services.sagemaker.sparksdk.transformation.{ContentTypes, ResponseRowDeserializer}
+</span>32 <span style=''>
+</span>33 <span style=''>/**
+</span>34 <span style=''>  * A [[ResponseRowDeserializer]] for converting SageMaker Protobuf-in-recordio response data
+</span>35 <span style=''>  * to Spark rows.
+</span>36 <span style=''>  * @param schema The schema of rows in the response.
+</span>37 <span style=''>  * @param protobufKeys The keys for each output in the Protobuf response.
+</span>38 <span style=''>  */
+</span>39 <span style=''>class ProtobufResponseRowDeserializer(override val schema: StructType,
+</span>40 <span style=''>                                      val protobufKeys : Option[Seq[String]] = None)
+</span>41 <span style=''>  extends ResponseRowDeserializer {
+</span>42 <span style=''>
+</span>43 <span style=''>  /**
+</span>44 <span style=''>    * Deserialize a SageMaker response containing a byte array of record-IO encoded SageMaker
+</span>45 <span style=''>    * Protobuf records.
+</span>46 <span style=''>    *
+</span>47 <span style=''>    * @param responseData The Array[Byte] containing the Protobuf-in-recordIO response
+</span>48 <span style=''>    * @return An Iterator over deserialized Rows
+</span>49 <span style=''>    */
+</span>50 <span style=''>  override def deserializeResponse(responseData: Array[Byte]): Iterator[Row] = {
+</span>51 <span style=''>    val recordIterator = </span><span style='background: #AEF1AE'>ProtobufConverter.recordIOByteArrayToProtobufs(responseData)</span><span style=''>
+</span>52 <span style=''>    val rowList = </span><span style='background: #AEF1AE'>ListBuffer[Row]()</span><span style=''>
+</span>53 <span style=''>    while (</span><span style='background: #AEF1AE'>recordIterator.hasNext</span><span style=''>) {
+</span>54 <span style=''>      </span><span style='background: #AEF1AE'>rowList += protobufToRow(recordIterator.next)</span><span style=''>
+</span>55 <span style=''>    }
+</span>56 <span style=''>    </span><span style='background: #AEF1AE'>rowList.toIterator</span><span style=''>
+</span>57 <span style=''>  }
+</span>58 <span style=''>
+</span>59 <span style=''>  private def protobufToRow(record: Record) : Row = {
+</span>60 <span style=''>    val rowValues = </span><span style='background: #AEF1AE'>ListBuffer[Any]()</span><span style=''>
+</span>61 <span style=''>    val labelList = </span><span style='background: #AEF1AE'>record.getLabelList</span><span style=''>
+</span>62 <span style=''>    </span><span style='background: #AEF1AE'>for (fieldName &lt;- protobufKeys.getOrElse[Seq[String]](schema.fieldNames)) {
+</span>63 <span style=''></span><span style='background: #AEF1AE'>      val value = getValueFromLabelList(fieldName, labelList.asScala)
+</span>64 <span style=''></span><span style='background: #AEF1AE'>      val dataValue = getValueFromTensor(value.getFloat32Tensor)
+</span>65 <span style=''></span><span style='background: #AEF1AE'>      rowValues += dataValue
+</span>66 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>67 <span style=''>    if (</span><span style='background: #AEF1AE'>schema.fields.length &gt; rowValues.toArray.length</span><span style=''>) {
+</span>68 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalArgumentException(s&quot;Expected ${schema.fields.length} entries to fit&quot; +
+</span>69 <span style=''></span><span style='background: #F0ADAD'>        s&quot; schema ${schema}, received ${rowValues.toArray.length} entries: ${rowValues.toList}&quot;)</span><span style=''>
+</span>70 <span style=''>    }
+</span>71 <span style=''>    </span><span style='background: #AEF1AE'>new GenericRowWithSchema(rowValues.toArray, schema)</span><span style=''>
+</span>72 <span style=''>  }
+</span>73 <span style=''>
+</span>74 <span style=''>  private def getValueFromLabelList(fieldName: String,
+</span>75 <span style=''>                                    labelList: mutable.Buffer[MapEntry]): Value = {
+</span>76 <span style=''>    val mapEntryList = </span><span style='background: #AEF1AE'>labelList.filter(_.getKey == fieldName)</span><span style=''>
+</span>77 <span style=''>    </span><span style='background: #AEF1AE'>require(mapEntryList.nonEmpty, s&quot;Couldn't find field $fieldName in $labelList&quot;)</span><span style=''>
+</span>78 <span style=''>    </span><span style='background: #AEF1AE'>mapEntryList.head.getValue</span><span style=''>
+</span>79 <span style=''>  }
+</span>80 <span style=''>
+</span>81 <span style=''>  private def getValueFromTensor(valuesTensor: Float32Tensor) : Any = {
+</span>82 <span style=''>    val valuesCount = </span><span style='background: #AEF1AE'>valuesTensor.getValuesCount</span><span style=''>
+</span>83 <span style=''>    </span><span style='background: #AEF1AE'>require(valuesCount &gt; 0, </span><span style='background: #F0ADAD'>&quot;Can't get value from deserialized tensor: values list is empty.&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>    if (</span><span style='background: #AEF1AE'>valuesCount == 1</span><span style=''>) {
+</span>86 <span style=''>      // Get value as a scalar
+</span>87 <span style=''>      </span><span style='background: #AEF1AE'>valuesTensor.getValues(0).toDouble</span><span style=''>
+</span>88 <span style=''>    } else </span><span style='background: #AEF1AE'>{
+</span>89 <span style=''></span><span style='background: #AEF1AE'>      // Get value as a Vector
+</span>90 <span style=''></span><span style='background: #AEF1AE'>      val keyCount = valuesTensor.getKeysCount
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      val values = asScalaBufferConverter(valuesTensor.getValuesList)
+</span>92 <span style=''></span><span style='background: #AEF1AE'>        .asScala.toArray.map(_.toDouble)
+</span>93 <span style=''></span><span style='background: #AEF1AE'>        if (keyCount &gt; 0) {
+</span>94 <span style=''></span><span style='background: #AEF1AE'>        // Tensor is sparsely encoded. We can only represent sparsely-encoded vectors
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        // (not higher-order tensors).
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        require(valuesTensor.getShapeCount == 1,
+</span>97 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>&quot;Cannot deserialize tensor to vector. Shape list has more than one value.&quot;</span><span style='background: #AEF1AE'>)
+</span>98 <span style=''></span><span style='background: #AEF1AE'>        val indices = asScalaBufferConverter(valuesTensor.getKeysList).asScala.toArray.map(_.toInt)
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        return new SparseVector(valuesTensor.getShape(0).toInt, indices, values)
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>101 <span style=''></span><span style='background: #AEF1AE'>        // Vector is densely encoded.
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        return new DenseVector(values)
+</span>103 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>104 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  /**
+</span>108 <span style=''>    * Returns [[com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.PROTOBUF]]
+</span>109 <span style=''>    */
+</span>110 <span style=''>  override val accepts: String = </span><span style='background: #AEF1AE'>ContentTypes.PROTOBUF</span><span style=''>
+</span>111 <span style=''>}
+</span>112 <span style=''>
+</span>113 <span style=''>/**
+</span>114 <span style=''>  * Deserializes a Protobuf response from the KMeans model image into Rows in a Spark Dataframe
+</span>115 <span style=''>  *
+</span>116 <span style=''>  * @param distanceToClusterColumnName name of the column of doubles indicating the distance to
+</span>117 <span style=''>  *   the nearest cluster from the input record.
+</span>118 <span style=''>  * @param closestClusterColumnName name of the column of doubles indicating the label of the
+</span>119 <span style=''>  *   closest cluster for the input record.
+</span>120 <span style=''>  */
+</span>121 <span style=''>class KMeansProtobufResponseRowDeserializer
+</span>122 <span style=''>(val distanceToClusterColumnName: String = &quot;distance_to_cluster&quot;,
+</span>123 <span style=''> val closestClusterColumnName: String = &quot;closest_cluster&quot;)
+</span>124 <span style=''>  extends ProtobufResponseRowDeserializer(schema =
+</span>125 <span style=''>    StructType(Array(StructField(distanceToClusterColumnName, DoubleType),
+</span>126 <span style=''>      StructField(closestClusterColumnName, DoubleType))),
+</span>127 <span style=''>    protobufKeys = Some(Seq(&quot;distance_to_cluster&quot;, &quot;closest_cluster&quot;)))
+</span>128 <span style=''>
+</span>129 <span style=''>/**
+</span>130 <span style=''>  * Deserializes a Protobuf response from the PCA model image to a Vector of Doubles containing
+</span>131 <span style=''>  *   the projection of the input vector.
+</span>132 <span style=''>  *
+</span>133 <span style=''>  * @param projectionColumnName name of the column holding Vectors of Doubles representing the
+</span>134 <span style=''>  *   projected vectors
+</span>135 <span style=''>  */
+</span>136 <span style=''>class PCAProtobufResponseRowDeserializer
+</span>137 <span style=''>(val projectionColumnName : String = &quot;projection&quot;)
+</span>138 <span style=''>  extends ProtobufResponseRowDeserializer(schema =
+</span>139 <span style=''>    StructType(Array(StructField(projectionColumnName, VectorType))),
+</span>140 <span style=''>    protobufKeys = Some(Seq(&quot;projection&quot;)))
+</span>141 <span style=''>
+</span>142 <span style=''>/**
+</span>143 <span style=''>  * Deserializes a Protobuf response from the LinearLearner model image with predictorType
+</span>144 <span style=''>  *   &quot;binary_classifier&quot; into Rows in a Spark Dataframe
+</span>145 <span style=''>  * @param scoreColumnName name of the column of Doubles indicating the output score for the record.
+</span>146 <span style=''>  * @param predictedLabelColumnName name of the column of Doubles indicating the predicted label
+</span>147 <span style=''>  *   for the record.
+</span>148 <span style=''>  */
+</span>149 <span style=''>class LinearLearnerBinaryClassifierProtobufResponseRowDeserializer
+</span>150 <span style=''>(val scoreColumnName: String = &quot;score&quot;,
+</span>151 <span style=''> val predictedLabelColumnName: String = &quot;predicted_label&quot;)
+</span>152 <span style=''>  extends ProtobufResponseRowDeserializer(schema =
+</span>153 <span style=''>    StructType(Array(StructField(scoreColumnName, DoubleType),
+</span>154 <span style=''>      StructField(predictedLabelColumnName, DoubleType))),
+</span>155 <span style=''>    protobufKeys = Some(Seq(&quot;score&quot;, &quot;predicted_label&quot;)))
+</span>156 <span style=''>
+</span>157 <span style=''>/**
+</span>158 <span style=''>  * Deserializes a Protobuf response from the LinearLearner model image with predictorType
+</span>159 <span style=''>  * &quot;regressor&quot; into Rows in a Spark Dataframe
+</span>160 <span style=''>  *
+</span>161 <span style=''>  * @param scoreColumnName name of the column of Doubles indicating the output score for the record.
+</span>162 <span style=''>  */
+</span>163 <span style=''>class LinearLearnerRegressorProtobufResponseRowDeserializer
+</span>164 <span style=''>(val scoreColumnName: String = &quot;score&quot;)
+</span>165 <span style=''>  extends ProtobufResponseRowDeserializer(schema =
+</span>166 <span style=''>    StructType(Array(StructField(scoreColumnName, DoubleType))),
+</span>167 <span style=''>    protobufKeys = Some(Seq(&quot;score&quot;)))
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1754
+        </td>
+        <td>
+          2125
+          -
+          2185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.recordIOByteArrayToProtobufs
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.protobuf.ProtobufConverter.recordIOByteArrayToProtobufs(responseData)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1755
+        </td>
+        <td>
+          2204
+          -
+          2221
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ListBuffer.apply[org.apache.spark.sql.Row]()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1761
+        </td>
+        <td>
+          2265
+          -
+          2310
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  rowList.+=(ProtobufResponseRowDeserializer.this.protobufToRow(recordIterator.next()));
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1763
+        </td>
+        <td>
+          2226
+          -
+          2226
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1762
+        </td>
+        <td>
+          2226
+          -
+          2226
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1756
+        </td>
+        <td>
+          2233
+          -
+          2255
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.Iterator.hasNext
+        </td>
+        <td style="background: #AEF1AE">
+          recordIterator.hasNext
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1757
+        </td>
+        <td>
+          2290
+          -
+          2309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td style="background: #AEF1AE">
+          recordIterator.next()
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1760
+        </td>
+        <td>
+          2273
+          -
+          2273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.ProtobufResponseRowDeserializer.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1759
+        </td>
+        <td>
+          2265
+          -
+          2310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ListBuffer.+=
+        </td>
+        <td style="background: #AEF1AE">
+          rowList.+=(ProtobufResponseRowDeserializer.this.protobufToRow(recordIterator.next()))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1758
+        </td>
+        <td>
+          2276
+          -
+          2310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.ProtobufResponseRowDeserializer.protobufToRow
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.protobufToRow(recordIterator.next())
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1764
+        </td>
+        <td>
+          2321
+          -
+          2339
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.toIterator
+        </td>
+        <td style="background: #AEF1AE">
+          rowList.toIterator
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1765
+        </td>
+        <td>
+          2419
+          -
+          2436
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ListBuffer.apply[Any]()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1766
+        </td>
+        <td>
+          2457
+          -
+          2476
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.Record.getLabelList
+        </td>
+        <td style="background: #AEF1AE">
+          record.getLabelList()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1774
+        </td>
+        <td>
+          2481
+          -
+          2726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.protobufKeys.getOrElse[Seq[String]](scala.this.Predef.wrapRefArray[String](ProtobufResponseRowDeserializer.this.schema.fieldNames)).foreach[scala.collection.mutable.ListBuffer[Any]](((fieldName: String) =&gt; {
+  val value: aialgorithms.proto2.RecordProto2.Value = ProtobufResponseRowDeserializer.this.getValueFromLabelList(fieldName, scala.collection.JavaConverters.asScalaBufferConverter[aialgorithms.proto2.RecordProto2.MapEntry](labelList).asScala);
+  val dataValue: Any = ProtobufResponseRowDeserializer.this.getValueFromTensor(value.getFloat32Tensor());
+  rowValues.+=(dataValue)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1768
+        </td>
+        <td>
+          2535
+          -
+          2552
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.wrapRefArray[String](ProtobufResponseRowDeserializer.this.schema.fieldNames)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1767
+        </td>
+        <td>
+          2535
+          -
+          2552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fieldNames
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.schema.fieldNames
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1770
+        </td>
+        <td>
+          2575
+          -
+          2626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.ProtobufResponseRowDeserializer.getValueFromLabelList
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.getValueFromLabelList(fieldName, scala.collection.JavaConverters.asScalaBufferConverter[aialgorithms.proto2.RecordProto2.MapEntry](labelList).asScala)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1769
+        </td>
+        <td>
+          2608
+          -
+          2625
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsScala.asScala
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[aialgorithms.proto2.RecordProto2.MapEntry](labelList).asScala
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1772
+        </td>
+        <td>
+          2649
+          -
+          2691
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.ProtobufResponseRowDeserializer.getValueFromTensor
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.getValueFromTensor(value.getFloat32Tensor())
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1771
+        </td>
+        <td>
+          2668
+          -
+          2690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.Value.getFloat32Tensor
+        </td>
+        <td style="background: #AEF1AE">
+          value.getFloat32Tensor()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1773
+        </td>
+        <td>
+          2698
+          -
+          2720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ListBuffer.+=
+        </td>
+        <td style="background: #AEF1AE">
+          rowValues.+=(dataValue)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1779
+        </td>
+        <td>
+          2731
+          -
+          2731
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1775
+        </td>
+        <td>
+          2758
+          -
+          2782
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td style="background: #AEF1AE">
+          rowValues.toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])).length
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1780
+        </td>
+        <td>
+          2731
+          -
+          2731
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1776
+        </td>
+        <td>
+          2735
+          -
+          2782
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.schema.fields.length.&gt;(rowValues.toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])).length)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1778
+        </td>
+        <td>
+          2792
+          -
+          2976
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Expected &quot;, &quot; entries to fit&quot;).s(ProtobufResponseRowDeserializer.this.schema.fields.length).+(scala.StringContext.apply(&quot; schema &quot;, &quot;, received &quot;, &quot; entries: &quot;, &quot;&quot;).s(ProtobufResponseRowDeserializer.this.schema, rowValues.toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])).length, rowValues.toList)))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1777
+        </td>
+        <td>
+          2792
+          -
+          2976
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Expected &quot;, &quot; entries to fit&quot;).s(ProtobufResponseRowDeserializer.this.schema.fields.length).+(scala.StringContext.apply(&quot; schema &quot;, &quot;, received &quot;, &quot; entries: &quot;, &quot;&quot;).s(ProtobufResponseRowDeserializer.this.schema, rowValues.toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])).length, rowValues.toList)))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1782
+        </td>
+        <td>
+          3031
+          -
+          3037
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.ProtobufResponseRowDeserializer.schema
+        </td>
+        <td style="background: #AEF1AE">
+          ProtobufResponseRowDeserializer.this.schema
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1781
+        </td>
+        <td>
+          3012
+          -
+          3029
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.generic.TraversableForwarder.toArray
+        </td>
+        <td style="background: #AEF1AE">
+          rowValues.toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1783
+        </td>
+        <td>
+          2987
+          -
+          3038
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema(rowValues.toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])), ProtobufResponseRowDeserializer.this.schema)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1784
+        </td>
+        <td>
+          3223
+          -
+          3244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.getKey().==(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1785
+        </td>
+        <td>
+          3206
+          -
+          3245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #AEF1AE">
+          labelList.filter(((x$1: aialgorithms.proto2.RecordProto2.MapEntry) =&gt; x$1.getKey().==(fieldName)))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1788
+        </td>
+        <td>
+          3250
+          -
+          3329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(mapEntryList.nonEmpty, scala.StringContext.apply(&quot;Couldn\'t find field &quot;, &quot; in &quot;, &quot;&quot;).s(fieldName, labelList))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1787
+        </td>
+        <td>
+          3281
+          -
+          3328
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Couldn\'t find field &quot;, &quot; in &quot;, &quot;&quot;).s(fieldName, labelList)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1786
+        </td>
+        <td>
+          3258
+          -
+          3279
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          mapEntryList.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1789
+        </td>
+        <td>
+          3334
+          -
+          3360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.MapEntry.getValue
+        </td>
+        <td style="background: #AEF1AE">
+          mapEntryList.head.getValue()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1790
+        </td>
+        <td>
+          3460
+          -
+          3487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.Float32Tensor.getValuesCount
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getValuesCount()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1791
+        </td>
+        <td>
+          3500
+          -
+          3515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          valuesCount.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1793
+        </td>
+        <td>
+          3492
+          -
+          3583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(valuesCount.&gt;(0), &quot;Can\'t get value from deserialized tensor: values list is empty.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1792
+        </td>
+        <td>
+          3517
+          -
+          3582
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Can\'t get value from deserialized tensor: values list is empty.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1794
+        </td>
+        <td>
+          3593
+          -
+          3609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #AEF1AE">
+          valuesCount.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1797
+        </td>
+        <td>
+          3650
+          -
+          3684
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Float.toDouble
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getValues(0).toDouble
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1796
+        </td>
+        <td>
+          3650
+          -
+          3684
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Float.toDouble
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getValues(0).toDouble
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1795
+        </td>
+        <td>
+          3673
+          -
+          3674
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1819
+        </td>
+        <td>
+          3696
+          -
+          4461
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val keyCount: Int = valuesTensor.getKeysCount();
+  val values: Array[Double] = scala.this.Predef.refArrayOps[Float](scala.collection.JavaConverters.asScalaBufferConverter[Float](valuesTensor.getValuesList()).asScala.toArray[Float]((ClassTag.apply[Float](classOf[java.lang.Float]): scala.reflect.ClassTag[Float]))).map[Double, Array[Double]](((x$2: Float) =&gt; scala.this.Predef.Float2float(x$2).toDouble))(scala.this.Array.canBuildFrom[Double]((ClassTag.Double: scala.reflect.ClassTag[Double])));
+  if (keyCount.&gt;(0))
+    {
+      scala.this.Predef.require(valuesTensor.getShapeCount().==(1), &quot;Cannot deserialize tensor to vector. Shape list has more than one value.&quot;);
+      val indices: Array[Int] = scala.this.Predef.refArrayOps[Long](scala.collection.JavaConverters.asScalaBufferConverter[Long](valuesTensor.getKeysList()).asScala.toArray[Long]((ClassTag.apply[Long](classOf[java.lang.Long]): scala.reflect.ClassTag[Long]))).map[Int, Array[Int]](((x$3: Long) =&gt; scala.this.Predef.Long2long(x$3).toInt))(scala.this.Array.canBuildFrom[Int]((ClassTag.Int: scala.reflect.ClassTag[Int])));
+      return new org.apache.spark.ml.linalg.SparseVector(valuesTensor.getShape(0).toInt, indices, values)
+    }
+  else
+    return new org.apache.spark.ml.linalg.DenseVector(values)
+}
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1798
+        </td>
+        <td>
+          3750
+          -
+          3775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.Float32Tensor.getKeysCount
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getKeysCount()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1799
+        </td>
+        <td>
+          3818
+          -
+          3844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.Float32Tensor.getValuesList
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getValuesList()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1802
+        </td>
+        <td>
+          3874
+          -
+          3874
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[Double]((ClassTag.Double: scala.reflect.ClassTag[Double]))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1801
+        </td>
+        <td>
+          3875
+          -
+          3885
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Float.toDouble
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Float2float(x$2).toDouble
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1800
+        </td>
+        <td>
+          3795
+          -
+          3870
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[Float](valuesTensor.getValuesList()).asScala.toArray[Float]((ClassTag.apply[Float](classOf[java.lang.Float]): scala.reflect.ClassTag[Float]))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1803
+        </td>
+        <td>
+          3795
+          -
+          3886
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[Float](scala.collection.JavaConverters.asScalaBufferConverter[Float](valuesTensor.getValuesList()).asScala.toArray[Float]((ClassTag.apply[Float](classOf[java.lang.Float]): scala.reflect.ClassTag[Float]))).map[Double, Array[Double]](((x$2: Float) =&gt; scala.this.Predef.Float2float(x$2).toDouble))(scala.this.Array.canBuildFrom[Double]((ClassTag.Double: scala.reflect.ClassTag[Double])))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1804
+        </td>
+        <td>
+          3899
+          -
+          3911
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          keyCount.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1816
+        </td>
+        <td>
+          3913
+          -
+          4363
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  scala.this.Predef.require(valuesTensor.getShapeCount().==(1), &quot;Cannot deserialize tensor to vector. Shape list has more than one value.&quot;);
+  val indices: Array[Int] = scala.this.Predef.refArrayOps[Long](scala.collection.JavaConverters.asScalaBufferConverter[Long](valuesTensor.getKeysList()).asScala.toArray[Long]((ClassTag.apply[Long](classOf[java.lang.Long]): scala.reflect.ClassTag[Long]))).map[Int, Array[Int]](((x$3: Long) =&gt; scala.this.Predef.Long2long(x$3).toInt))(scala.this.Array.canBuildFrom[Int]((ClassTag.Int: scala.reflect.ClassTag[Int])));
+  return new org.apache.spark.ml.linalg.SparseVector(valuesTensor.getShape(0).toInt, indices, values)
+}
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1805
+        </td>
+        <td>
+          4056
+          -
+          4087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getShapeCount().==(1)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1807
+        </td>
+        <td>
+          4048
+          -
+          4174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.require(valuesTensor.getShapeCount().==(1), &quot;Cannot deserialize tensor to vector. Shape list has more than one value.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1806
+        </td>
+        <td>
+          4099
+          -
+          4173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Cannot deserialize tensor to vector. Shape list has more than one value.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1808
+        </td>
+        <td>
+          4220
+          -
+          4244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          aialgorithms.proto2.RecordProto2.Float32Tensor.getKeysList
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getKeysList()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1811
+        </td>
+        <td>
+          4265
+          -
+          4265
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[Int]((ClassTag.Int: scala.reflect.ClassTag[Int]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1810
+        </td>
+        <td>
+          4266
+          -
+          4273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Long2long(x$3).toInt
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1809
+        </td>
+        <td>
+          4197
+          -
+          4261
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[Long](valuesTensor.getKeysList()).asScala.toArray[Long]((ClassTag.apply[Long](classOf[java.lang.Long]): scala.reflect.ClassTag[Long]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1812
+        </td>
+        <td>
+          4197
+          -
+          4274
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[Long](scala.collection.JavaConverters.asScalaBufferConverter[Long](valuesTensor.getKeysList()).asScala.toArray[Long]((ClassTag.apply[Long](classOf[java.lang.Long]): scala.reflect.ClassTag[Long]))).map[Int, Array[Int]](((x$3: Long) =&gt; scala.this.Predef.Long2long(x$3).toInt))(scala.this.Array.canBuildFrom[Int]((ClassTag.Int: scala.reflect.ClassTag[Int])))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1815
+        </td>
+        <td>
+          4290
+          -
+          4355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.linalg.SparseVector.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.linalg.SparseVector(valuesTensor.getShape(0).toInt, indices, values)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1814
+        </td>
+        <td>
+          4307
+          -
+          4337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td style="background: #AEF1AE">
+          valuesTensor.getShape(0).toInt
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1813
+        </td>
+        <td>
+          4329
+          -
+          4330
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          4424
+          -
+          4447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.ml.linalg.DenseVector.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.ml.linalg.DenseVector(values)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1818
+        </td>
+        <td>
+          4417
+          -
+          4447
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.deserializers.ProtobufResponseRowDeserializer.getValueFromTensor
+        </td>
+        <td style="background: #AEF1AE">
+          return new org.apache.spark.ml.linalg.DenseVector(values)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1820
+        </td>
+        <td>
+          4610
+          -
+          4631
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.amazonaws.services.sagemaker.sparksdk.transformation.ContentTypes.PROTOBUF
+        </td>
+        <td style="background: #AEF1AE">
+          com.amazonaws.services.sagemaker.sparksdk.transformation.`package`.ContentTypes.PROTOBUF
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
